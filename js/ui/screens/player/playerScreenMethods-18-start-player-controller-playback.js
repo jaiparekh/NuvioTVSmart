@@ -36,7 +36,8 @@ export function createPlayerScreenMethods18() {
       // the plugin metadata is still present on the selected stream.
       const candidateHeaders = this.getCurrentStreamRequestHeaders(sourceCandidate);
       const contextHeaders = context?.requestHeaders && typeof context.requestHeaders === "object" ? context.requestHeaders : {};
-      const requestHeaders = { ...candidateHeaders, ...contextHeaders };
+      const isInternalMkvHls = Boolean(this.mkvCompatibilitySession?.id) && playbackUrl.includes("/api/mkv-hls/") && playbackUrl.endsWith("/index.m3u8");
+      const requestHeaders = isInternalMkvHls ? {} : { ...candidateHeaders, ...contextHeaders };
       const playbackContext = {
         ...(context && typeof context === "object" ? context : {}),
         ...(Object.keys(requestHeaders).length ? { requestHeaders } : {})
