@@ -54,7 +54,7 @@ test("rejects unsafe FFmpeg stream indexes", () => {
   }));
 });
 
-test("generates a complete seekable HLS VOD playlist", () => {
+test("publishes HLS progressively without deleting earlier segments", () => {
   const args = buildMkvHlsArguments({
     sourceUrl: "https://example.org/movie.mkv",
     audioStreamIndex: 1,
@@ -62,7 +62,7 @@ test("generates a complete seekable HLS VOD playlist", () => {
     startSeconds: 120
   });
   assert.deepEqual(args.slice(args.indexOf("-hls_list_size"), args.indexOf("-hls_segment_filename")), [
-    "-hls_list_size", "0", "-hls_playlist_type", "vod"
+    "-hls_list_size", "0", "-hls_playlist_type", "event"
   ]);
   assert.deepEqual(args.slice(args.indexOf("-ss"), args.indexOf("-i")), ["-ss", "120"]);
 });
