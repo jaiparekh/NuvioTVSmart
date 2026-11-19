@@ -15,7 +15,7 @@ export const TraktBrowserAuth = {
     const challenge = encode(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
     const state = random(24);
     sessionStorage.setItem(KEY, JSON.stringify({ verifier, state, profileId: String(ProfileManager.getActiveProfileId()), created: Date.now() }));
-    const url = new URL("https://trakt.tv/oauth/authorize");
+    const url = new URL("https://auth.trakt.tv/oauth/authorize");
     for (const [key, value] of Object.entries({ response_type: "code", client_id: TRAKT_CLIENT_ID, redirect_uri: redirectUri(), state, code_challenge: challenge, code_challenge_method: "S256" })) url.searchParams.set(key, value);
     location.assign(url.toString());
   },
