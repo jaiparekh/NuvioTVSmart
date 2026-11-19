@@ -34,8 +34,20 @@ export const TraktBrowserAuth = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code, client_id: TRAKT_CLIENT_ID, redirect_uri: redirectUri(), grant_type: "authorization_code", code_verifier: pending.verifier })
     });
-    const payload = await response.json();
-    if (!response.ok || !payload.access_token) throw new Error(payload.error_description || payload.error || "Trakt token exchange failed");
+    const contentType = response.headers.get("content-type") || "missing";
+    const rawResponse = await response.text();
+    let payload;
+    try {
+      payload = JSON.parse(rawResponse);
+    } catch {
+      // Never include the upstream response body: it may contain HTML or sensitive data.
+      throw new Error(`Trakt token exchange returned non-JSON (HTTP ${response.status}, Content-Type: ${contentType})`);
+    }
+    if (!response.ok || !payload?.access_token) {
+      // OAuth error fields are expected, but do not surface arbitrary upstream HTML.
+      const oauthError = typeof payload?.error === "string" ? payload.error : "token_exchange_failed";
+      throw new Error(`Trakt token exchange failed (HTTP ${response.status}, Content-Type: ${contentType}, error: ${oauthError})`);
+    }
     TraktAuthStore.saveToken(payload, pending.profileId);
     history.replaceState(null, "", "/");
     location.replace("/");
