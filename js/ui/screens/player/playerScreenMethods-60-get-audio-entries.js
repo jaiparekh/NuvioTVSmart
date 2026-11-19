@@ -187,7 +187,7 @@ export function createPlayerScreenMethods60() {
       const offset = Number(PlayerController.getCurrentTime?.() ?? PlayerController.video?.currentTime ?? 0);
       const next = await replaceMkvBrowserCompatibility(current.id, {
         audioStreamIndex,
-        startSeconds: Math.max(0, Number.isFinite(offset) ? offset : 0)
+        startSeconds: Math.max(0, Number(current.startSeconds || 0) + (Number.isFinite(offset) ? offset : 0))
       });
       if (!next) return false;
       if (this.mkvCompatibilitySession?.id !== current.id) {
