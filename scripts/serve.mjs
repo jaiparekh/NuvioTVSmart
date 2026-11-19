@@ -5,7 +5,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { buildRuntimeEnvScript, readEnvProperties } from "./envProperties.mjs";
-import { readHlsAsset, closeAllHlsSessions, createAuthorizedMkvSession, replaceAuthorizedMkvSession, closeHlsSession } from "./mkvHlsSessions.mjs";
+import { readHlsAsset, closeAllHlsSessions, createAuthorizedMkvSession, replaceAuthorizedMkvSession, closeHlsSession } from "./mkvRemoteClient.mjs";
 import { timingSafeEqual } from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
