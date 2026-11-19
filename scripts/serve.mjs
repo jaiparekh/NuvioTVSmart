@@ -5,7 +5,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { buildRuntimeEnvScript, readEnvProperties } from "./envProperties.mjs";
-import { readHlsAsset, closeAllHlsSessions, createAuthorizedMkvSession, closeHlsSession } from "./mkvHlsSessions.mjs";
+import { readHlsAsset, closeAllHlsSessions, createAuthorizedMkvSession, replaceAuthorizedMkvSession, closeHlsSession } from "./mkvHlsSessions.mjs";
 import { timingSafeEqual } from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -227,6 +227,48 @@ const server = http.createServer(async (request, response) => {
       } catch {
         response.writeHead(422, { "Content-Type": "application/json", "Cache-Control": "no-store" });
         response.end(JSON.stringify({ error: "Media session could not be created" }));
+      }
+      return;
+    }
+    // Authenticated replacement: choose another embedded audio stream or seek.
+    // The original source URL remains server-owned and cannot be changed here.
+    if (requestUrl.pathname.startsWith("/api/mkv-hls/session/") && request.method === "PUT") {
+      const secret = process.env.NUVIO_MKV_API_TOKEN || "";
+      const supplied = String(request.headers.authorization || "").replace(/^Bearer /, "");
+      const expected = Buffer.from(secret), actual = Buffer.from(supplied);
+      if (secret.length < 32 || expected.length !== actual.length ||
+          !timingSafeEqual(expected, actual) || request.headers.origin) {
+        response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return;
+      }
+      const id = requestUrl.pathname.slice("/api/mkv-hls/session/".length);
+      if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) {
+        response.writeHead(404); response.end(); return;
+      }
+      const chunks = []; let size = 0;
+      for await (const chunk of request) {
+        size += chunk.length;
+        if (size > 4096) { response.writeHead(413); response.end(); return; }
+        chunks.push(chunk);
+      }
+      let input;
+      try { input = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+      catch { response.writeHead(400); response.end(); return; }
+      if (input == null || typeof input !== "object" || Array.isArray(input) ||
+          (input.audioStreamIndex != null && (!Number.isSafeInteger(input.audioStreamIndex) || input.audioStreamIndex < 0)) ||
+          (input.startSeconds != null && (!Number.isFinite(input.startSeconds) || input.startSeconds < 0 || input.startSeconds > 86400))) {
+        response.writeHead(400); response.end(); return;
+      }
+      try {
+        const result = await replaceAuthorizedMkvSession({
+          id,
+          selectedAudioStreamIndex: input.audioStreamIndex ?? null,
+          startSeconds: input.startSeconds ?? 0
+        });
+        response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        response.end(JSON.stringify(result));
+      } catch {
+        response.writeHead(422, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        response.end(JSON.stringify({ error: "Media session could not be replaced" }));
       }
       return;
     }
