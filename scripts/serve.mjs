@@ -5,6 +5,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { buildRuntimeEnvScript, readEnvProperties } from "./envProperties.mjs";
+import { readHlsAsset, closeAllHlsSessions } from "./mkvHlsSessions.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -183,6 +184,29 @@ async function proxyLocalMediaRequest(request, response, pathname) {
 const server = http.createServer(async (request, response) => {
   try {
     const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    // Capability-scoped HLS assets. Sessions can only be created by a separately
+    // authorized source resolver; this route accepts no arbitrary upstream URL.
+    if (requestUrl.pathname.startsWith("/api/mkv-hls/")) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        response.writeHead(405, { Allow: "GET, HEAD", "Cache-Control": "no-store" });
+        response.end(); return;
+      }
+      const match = /^\\/api\\/mkv-hls\\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\/(index\\.m3u8|index-\\d{6}\\.ts)$/.exec(requestUrl.pathname);
+      if (!match) { response.writeHead(404); response.end(); return; }
+      const asset = await readHlsAsset(match[1], match[2]);
+      if (!asset) {
+        response.writeHead(404, { "Cache-Control": "no-store", "Retry-After": "1" });
+        response.end(); return;
+      }
+      response.writeHead(200, {
+        "Content-Type": asset.contentType,
+        "Content-Length": asset.bytes.length,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff"
+      });
+      response.end(request.method === "HEAD" ? undefined : asset.bytes);
+      return;
+    }
     if (requestUrl.pathname === "/trakt/oauth/token" && request.method === "POST") {
       const chunks = [];
       for await (const chunk of request) {
@@ -356,7 +380,7 @@ function stopMediaRuntime() {
 
 process.on("SIGINT", () => {
   stopMediaRuntime();
-  process.exit(0);
+  void closeAllHlsSessions().finally(() => process.exit(0));
 });
 process.on("SIGTERM", () => {
   stopMediaRuntime();
