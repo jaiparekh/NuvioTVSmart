@@ -25,7 +25,7 @@ cleanupTimer.unref?.();
  * endpoint and performs NO source URL authorization: the caller must authorize
  * the source and enforce SSRF protection before invoking createHlsSession.
  */
-export async function createHlsSession({ sourceUrl, audioStreamIndex, startSeconds = 0, gateway = null, reserved = false }) {
+export async function createHlsSession({ sourceUrl, audioStreamIndex, startSeconds = 0, gateway = null, reserved = false, transcodeAudio = true }) {
   if (sessions.size + pendingSetups - (reserved ? 1 : 0) >= MAX_SESSIONS) throw new Error("Transcode capacity reached");
   const id = randomUUID();
   const directory = await mkdtemp(path.join(tmpdir(), "nuvio-mkv-"));
@@ -33,7 +33,7 @@ export async function createHlsSession({ sourceUrl, audioStreamIndex, startSecon
   let args;
   try {
     args = buildMkvHlsArguments({
-      sourceUrl, audioStreamIndex, outputPlaylist: playlist, startSeconds
+      sourceUrl, audioStreamIndex, outputPlaylist: playlist, startSeconds, transcodeAudio
     });
   } catch (error) {
     await rm(directory, { recursive: true, force: true });
@@ -134,7 +134,7 @@ export async function closeAllHlsSessions() {
  * installed: caller authentication and rate limits must be enforced first.
  * The source is only ever read through a DNS-pinned, loopback gateway.
  */
-export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, selectedAudioStreamIndex = null, startSeconds = 0 }) {
+export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, selectedAudioStreamIndex = null, startSeconds = 0, forceHls = false }) {
   // Reserve capacity before asynchronous DNS and probing, otherwise concurrent
   // requests can all pass the sessions.size check and exceed the process limit.
   if (sessions.size + pendingSetups >= MAX_SESSIONS) throw new Error("Transcode capacity reached");
@@ -153,14 +153,15 @@ export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, sele
       return { action: "unchanged", reason: "not-mkv" };
     }
     const decision = decideMkvAudioCompatibility(probe, { selectedAudioStreamIndex });
-    if (decision.action !== "transcode-audio") return decision;
+    if (decision.action !== "transcode-audio" && !(forceHls && decision.action === "direct")) return decision;
     // Hold the reservation until createHlsSession has installed its session.
     const session = await createHlsSession({
       sourceUrl: gateway.url,
       audioStreamIndex: decision.audioStreamIndex,
       startSeconds,
       gateway,
-      reserved: true
+      reserved: true,
+      transcodeAudio: decision.action === "transcode-audio"
     });
     handedOff = true;
     try {
@@ -173,7 +174,7 @@ export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, sele
       sourceUrl, allowedHosts: [...allowedHosts],
       audioStreamIndex: decision.audioStreamIndex
     });
-    return { ...decision, ...session, playlistUrl: `/api/mkv-hls/${session.id}/index.m3u8`, audioTracks: probe.audio };
+    return { ...decision, action: "hls-session", transcodeAudio: decision.action === "transcode-audio", ...session, playlistUrl: `/api/mkv-hls/${session.id}/index.m3u8`, audioTracks: probe.audio };
   } finally {
     pendingSetups--;
     if (!handedOff) await gateway.close();
@@ -202,6 +203,7 @@ export async function replaceAuthorizedMkvSession({ id, selectedAudioStreamIndex
     sourceUrl: context.sourceUrl,
     allowedHosts: context.allowedHosts,
     selectedAudioStreamIndex: selectedAudioStreamIndex ?? context.audioStreamIndex,
-    startSeconds
+    startSeconds,
+    forceHls: true
   });
 }
