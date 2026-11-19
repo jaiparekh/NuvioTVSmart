@@ -40,10 +40,10 @@ export async function createHlsSession({ sourceUrl, audioStreamIndex, startSecon
     await rm(directory, { recursive: true, force: true });
     throw error;
   }
-  const session = { id, directory, child, lastAccess: Date.now(), closed: false, error: null };
+  const session = { id, directory, child, lastAccess: Date.now(), closed: false, error: null, bytesServed: 0 };
   sessions.set(id, session);
   let stderrBytes = 0;
-  child.stderr.on("data", (chunk) => {
+  child.stderr?.on("data", (chunk) => {
     // Never log signed media URLs or upstream headers.
     stderrBytes += chunk.length;
     if (stderrBytes > 128 * 1024) child.kill("SIGKILL");
@@ -64,9 +64,13 @@ export async function readHlsAsset(id, filename) {
   const target = path.join(session.directory, filename);
   const info = await stat(target).catch(() => null);
   if (!info?.isFile() || info.size > 16 * 1024 * 1024) return null;
+  const bytes = await readFile(target);
+  // FFmpeg may still be writing this segment. The playlist can reference it
+  // before the filesystem write is complete; clients should retry 404s.
+  if (bytes.length !== info.size) return null;
   return {
     contentType: filename.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp2t",
-    bytes: await readFile(target)
+    bytes
   };
 }
 
