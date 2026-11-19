@@ -8,6 +8,7 @@ import path from "node:path";
 import { createHlsSession, waitForHlsSessionReady, readHlsAsset, closeHlsSession } from "./mkvHlsSessions.mjs";
 
 const FFMPEG = process.env.NUVIO_FFMPEG_PATH || "/opt/ffmpeg/bin/ffmpeg";
+const FFPROBE = process.env.NUVIO_FFPROBE_PATH || "/opt/ffmpeg/bin/ffprobe";
 
 function run(binary, args) {
   return new Promise((resolve, reject) => {
@@ -29,7 +30,7 @@ test("FFmpeg creates playable HLS assets from MKV and tears down cleanly", { tim
       "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24",
       "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
       "-t", "6", "-c:v", "libx264", "-preset", "ultrafast", "-g", "48",
-      "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", file
+      "-pix_fmt", "yuv420p", "-c:a", "eac3", "-b:a", "192k", file
     ]);
     server = http.createServer(async (req, res) => {
       const bytes = await readFile(file);
@@ -58,6 +59,18 @@ test("FFmpeg creates playable HLS assets from MKV and tears down cleanly", { tim
     const segment = await readHlsAsset(id, "index-000000.ts");
     assert.ok(segment.bytes.length > 188);
     assert.equal(segment.bytes[0], 0x47, "MPEG-TS sync byte");
+    const segmentFile = path.join(directory, "output.ts");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(segmentFile, segment.bytes);
+    const audioCodec = await new Promise((resolve, reject) => {
+      const child = spawn(FFPROBE, ["-v", "error", "-select_streams", "a:0",
+        "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", segmentFile]);
+      let stdout = "";
+      child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+      child.on("error", reject);
+      child.on("close", (code) => code === 0 ? resolve(stdout.trim()) : reject(new Error("ffprobe failed")));
+    });
+    assert.equal(audioCodec, "aac", "E-AC3 input must be transcoded to AAC");
     await closeHlsSession(id); id = null;
     assert.equal(await readHlsAsset(session.id, "index.m3u8"), null);
   } finally {
