@@ -63,7 +63,7 @@ export async function createPinnedMkvGateway(sourceUrl, allowedHosts) {
       if (!res.headersSent) res.writeHead(502);
       res.end();
     });
-    req.on("close", () => upstream.destroy());
+    res.on("close", () => upstream.destroy());
     upstream.end();
   });
   try {
