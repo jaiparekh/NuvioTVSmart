@@ -174,7 +174,7 @@ export function requestJson(
         headers.Authorization = authorization;
       }
 
-      const response = await fetch(`${apiBaseUrl()}${path}`, {
+      const response = await fetch(Platform.isBrowser() && path === "/oauth/token" ? "/trakt/oauth/token" : `${apiBaseUrl()}${path}`, {
         method,
         headers,
         body: body == null ? undefined : JSON.stringify(body),
