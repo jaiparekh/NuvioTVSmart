@@ -10,6 +10,7 @@ import { createPinnedMkvGateway } from "./mkvPinnedGateway.mjs";
 const FFMPEG = process.env.NUVIO_FFMPEG_PATH || "/opt/ffmpeg/bin/ffmpeg";
 const MAX_SESSIONS = 2;
 const SESSION_IDLE_MS = 5 * 60 * 1000;
+const STARTUP_TIMEOUT_MS = 20_000;
 const sessions = new Map();
 let pendingSetups = 0;
 const cleanupTimer = setInterval(() => {
@@ -77,6 +78,27 @@ export async function readHlsAsset(id, filename) {
   };
 }
 
+/** Wait until FFmpeg has published a playlist referencing a complete first segment. */
+export async function waitForHlsSessionReady(id, { timeoutMs = STARTUP_TIMEOUT_MS } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const session = sessions.get(id);
+    if (!session || session.closed) throw new Error("Transcode session closed");
+    if (session.error) throw new Error(session.error);
+    const playlist = await readHlsAsset(id, "index.m3u8");
+    if (playlist) {
+      const body = playlist.bytes.toString("utf8");
+      const firstSegment = body.match(/(?:^|\\n)(index-\\d{6}\\.ts)(?:\\r?\\n|$)/);
+      if (firstSegment && await readHlsAsset(id, firstSegment[1])) return;
+    }
+    if (session.child.exitCode !== null || session.child.signalCode !== null) {
+      throw new Error("FFmpeg exited before HLS was ready");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error("Timed out waiting for first HLS segment");
+}
+
 export async function closeHlsSession(id) {
   const session = sessions.get(id);
   if (!session) return;
@@ -138,6 +160,12 @@ export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, sele
       reserved: true
     });
     handedOff = true;
+    try {
+      await waitForHlsSessionReady(session.id);
+    } catch (error) {
+      await closeHlsSession(session.id);
+      throw error;
+    }
     return { ...decision, ...session, playlistUrl: `/api/mkv-hls/${session.id}/index.m3u8`, audioTracks: probe.audio };
   } finally {
     pendingSetups--;
