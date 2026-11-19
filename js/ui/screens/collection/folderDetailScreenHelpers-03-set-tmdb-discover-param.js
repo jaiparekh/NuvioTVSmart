@@ -202,20 +202,11 @@ export async function fetchTmdbSourceItems(source = {}, page = 1) {
     };
   }
   if (type === "LIST") {
-    // Imported TMDB lists are generally v4 lists. The legacy v3 endpoint
-    // returns no usable items for these IDs, while v4 exposes them as results.
-    // Preserve support for older v3 lists by falling back on a v4 error.
-    const query = `api_key=${encodeURIComponent(apiKey)}&language=${encodeURIComponent(language)}&page=${encodeURIComponent(String(page))}`;
-    const listId = encodeURIComponent(String(source.tmdbId || ""));
-    let payload;
-    try {
-      ({ payload } = await fetchJson(`https://api.themoviedb.org/4/list/${listId}?${query}`));
-    } catch (error) {
-      ({ payload } = await fetchJson(`${TMDB_API_URL}/list/${listId}?${query}`));
-    }
+    const url = `${TMDB_API_URL}/list/${encodeURIComponent(String(source.tmdbId || ""))}?api_key=${encodeURIComponent(apiKey)}&language=${encodeURIComponent(language)}&page=${encodeURIComponent(String(page))}`;
+    const { payload } = await fetchJson(url);
     return {
       items: sortTmdbSourceItems(
-        (Array.isArray(payload?.results) ? payload.results : Array.isArray(payload?.items) ? payload.items : [])
+        (Array.isArray(payload?.items) ? payload.items : [])
           .map((item) => mapTmdbListItem(item, String(item?.media_type || mediaType)))
           .filter(Boolean),
         source.sortBy
