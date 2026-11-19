@@ -122,3 +122,12 @@ HLS playlist URL. The old session is closed before replacement. Chrome's
 initial compatibility playback explicitly uses `hls.js` and clears upstream
 MKV request headers for the same-origin HLS playlist. Browser playback has
 not yet been tested with a real media provider.
+
+### Track switching behavior
+
+When an HLS compatibility session is active, the audio dialog displays the
+original probed MKV audio tracks (language, title and codec when available).
+Selecting another track replaces the server-side HLS session and restarts
+hls.js at the current absolute source position. This is a first integration
+pass; it needs real-browser verification for focus handling, subtitle
+continuity, progress persistence and recovery from replacement failure.
