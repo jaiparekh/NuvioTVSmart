@@ -66,9 +66,13 @@ test("FFmpeg creates playable HLS assets from MKV and tears down cleanly", { tim
       const child = spawn(FFPROBE, ["-v", "error", "-select_streams", "a:0",
         "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", segmentFile]);
       let stdout = "";
+      let stderr = "";
       child.stdout.on("data", (chunk) => { stdout += String(chunk); });
-      child.on("error", reject);
-      child.on("close", (code) => code === 0 ? resolve(stdout.trim()) : reject(new Error("ffprobe failed")));
+      child.stderr.on("data", (chunk) => { stderr += String(chunk).slice(0, 4000); });
+      child.on("error", (error) => reject(new Error(`ffprobe could not start (${FFPROBE}): ${error.message}`)));
+      child.on("close", (code) => code === 0
+        ? resolve(stdout.trim())
+        : reject(new Error(`ffprobe exited with code ${code} (${FFPROBE}): ${stderr.trim() || "no diagnostic output"}`)));
     });
     const codecs = audioCodec.split(String.fromCharCode(10)).map((codec) => codec.trim()).filter(Boolean);
     assert.ok(codecs.length > 0 && codecs.every((codec) => codec === "aac"),
