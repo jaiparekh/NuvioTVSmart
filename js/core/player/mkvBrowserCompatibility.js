@@ -24,3 +24,14 @@ export async function requestMkvBrowserCompatibility(sourceUrl, { fetchImpl = fe
       !/^\/api\/mkv-hls\/[0-9a-f-]{36}\/index\.m3u8$/.test(result.playlistUrl)) return null;
   return result;
 }
+
+/** Best-effort cleanup when switching media sources. */
+export async function closeMkvBrowserCompatibility(id, { fetchImpl = fetch } = {}) {
+  if (typeof id !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) return false;
+  try {
+    const response = await fetchImpl(`/api/mkv-browser/session/${id}`, {
+      method: "DELETE", credentials: "same-origin"
+    });
+    return response.ok;
+  } catch { return false; }
+}
