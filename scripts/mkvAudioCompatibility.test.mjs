@@ -74,3 +74,28 @@ test("rejects non-http inputs and embedded URL credentials", () => {
     }));
   }
 });
+
+test("compatible alternate audio is copied while preserving HLS transport", () => {
+  const decision = decideMkvAudioCompatibility(probe, { selectedAudioStreamIndex: 2 });
+  assert.equal(decision.action, "direct");
+  const args = buildMkvHlsArguments({
+    sourceUrl: "http://127.0.0.1:4000/pinned-source",
+    audioStreamIndex: decision.audioStreamIndex,
+    outputPlaylist: "/tmp/session/index.m3u8",
+    transcodeAudio: false
+  });
+  assert.deepEqual(args.slice(args.indexOf("-c:v"), args.indexOf("-f")),
+    ["-c:v", "copy", "-c:a", "copy"]);
+  assert.deepEqual(args.slice(args.indexOf("-map"), args.indexOf("-sn")),
+    ["-map", "0:v:0", "-map", "0:2"]);
+});
+
+test("replacement seek is applied to the FFmpeg source", () => {
+  const args = buildMkvHlsArguments({
+    sourceUrl: "http://127.0.0.1:4000/pinned-source",
+    audioStreamIndex: 3,
+    outputPlaylist: "/tmp/session/index.m3u8",
+    startSeconds: 123.5
+  });
+  assert.deepEqual(args.slice(args.indexOf("-ss"), args.indexOf("-i")), ["-ss", "123.5"]);
+});
