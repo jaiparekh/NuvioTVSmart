@@ -70,7 +70,7 @@ test("FFmpeg creates playable HLS assets from MKV and tears down cleanly", { tim
       child.on("error", reject);
       child.on("close", (code) => code === 0 ? resolve(stdout.trim()) : reject(new Error("ffprobe failed")));
     });
-    assert.ok(audioCodec.split(/\\s+/).every((codec) => codec === "aac"),
+    assert.ok(audioCodec.split(String.fromCharCode(10)).map((codec) => codec.trim()).filter(Boolean).every((codec) => codec === "aac"),
       "E-AC3 input must be transcoded to AAC");
     await closeHlsSession(id); id = null;
     assert.equal(await readHlsAsset(session.id, "index.m3u8"), null);
