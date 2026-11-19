@@ -33,7 +33,6 @@ export async function createHlsSession({ sourceUrl, audioStreamIndex, startSecon
     });
   } catch (error) {
     await rm(directory, { recursive: true, force: true });
-    await gateway?.close();
     throw error;
   }
   let child;
