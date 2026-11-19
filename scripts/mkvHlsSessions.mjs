@@ -9,6 +9,10 @@ const FFMPEG = process.env.NUVIO_FFMPEG_PATH || "/opt/ffmpeg/bin/ffmpeg";
 const MAX_SESSIONS = 2;
 const SESSION_IDLE_MS = 5 * 60 * 1000;
 const sessions = new Map();
+const cleanupTimer = setInterval(() => {
+  void cleanupIdleHlsSessions().catch(() => {});
+}, 60_000);
+cleanupTimer.unref?.();
 
 /**
  * Server-side transcoding lifecycle. This module deliberately exposes NO HTTP
@@ -70,7 +74,7 @@ export async function closeHlsSession(id) {
   if (!session) return;
   sessions.delete(id);
   session.closed = true;
-  if (session.child.exitCode === null) session.child.kill("SIGKILL");
+  if (session.child.exitCode === null && !session.child.killed) session.child.kill("SIGKILL");
   await rm(session.directory, { recursive: true, force: true });
 }
 
