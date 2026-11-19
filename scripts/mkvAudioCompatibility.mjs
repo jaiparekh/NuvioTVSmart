@@ -48,7 +48,9 @@ export function buildMkvHlsArguments({
 }) {
   if (!Number.isSafeInteger(audioStreamIndex) || audioStreamIndex < 0) throw new Error("Invalid audio stream index");
   if (!Number.isFinite(startSeconds) || startSeconds < 0) throw new Error("Invalid start time");
-  if (typeof sourceUrl !== "string" || !/^https?:\/\//i.test(sourceUrl)) throw new Error("Invalid source URL");
+  let parsed;
+  try { parsed = new URL(sourceUrl); } catch { throw new Error("Invalid source URL"); }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error("Invalid source URL");
   if (typeof outputPlaylist !== "string" || !outputPlaylist) throw new Error("Missing output playlist");
   return [
     "-hide_banner", "-nostdin", "-loglevel", "warning",
@@ -59,7 +61,7 @@ export function buildMkvHlsArguments({
     "-c:a", transcodeAudio ? "aac" : "copy",
     ...(transcodeAudio ? ["-b:a", "192k"] : []),
     "-f", "hls", "-hls_time", "4",
-    "-hls_list_size", "8", "-hls_flags", "delete_segments+omit_endlist",
+    "-hls_list_size", "0", "-hls_playlist_type", "vod",
     "-hls_segment_filename", outputPlaylist.replace(/\.m3u8$/i, "") + "-%06d.ts",
     outputPlaylist
   ];
