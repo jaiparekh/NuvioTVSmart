@@ -1,0 +1,31 @@
+name: MKV audio compatibility tests
+
+on:
+  push:
+    branches:
+      - feature/mkv-audio-compatibility
+  pull_request:
+    paths:
+      - "scripts/mkv*.mjs"
+      - "scripts/audioCompatibilityProbe.mjs"
+      - ".github/workflows/mkv-audio-compatibility.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  node-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate module syntax
+        run: |
+          for file in scripts/mkv*.mjs scripts/audioCompatibilityProbe.mjs scripts/serve.mjs; do
+            node --check "$file"
+          done
+      - name: Run MKV compatibility tests
+        run: node --test scripts/mkv*.test.mjs
