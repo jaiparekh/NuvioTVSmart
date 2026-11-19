@@ -326,7 +326,8 @@ const server = http.createServer(async (request, response) => {
     response.end(fileContents);
   } catch (error) {
     response.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-    response.end(`Server error: ${error?.message || error}`);
+    // Do not expose upstream signed URLs or internal filesystem paths.
+    response.end("Internal server error");
   }
 });
 
@@ -384,5 +385,5 @@ process.on("SIGINT", () => {
 });
 process.on("SIGTERM", () => {
   stopMediaRuntime();
-  process.exit(0);
+  void closeAllHlsSessions().finally(() => process.exit(0));
 });
