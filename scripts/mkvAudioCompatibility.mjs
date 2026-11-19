@@ -61,7 +61,7 @@ export function buildMkvHlsArguments({
     "-c:a", transcodeAudio ? "aac" : "copy",
     ...(transcodeAudio ? ["-b:a", "192k"] : []),
     "-f", "hls", "-hls_time", "4",
-    "-hls_list_size", "0", "-hls_playlist_type", "vod",
+    "-hls_list_size", "0", "-hls_playlist_type", "event",
     "-hls_segment_filename", outputPlaylist.replace(/\.m3u8$/i, "") + "-%06d.ts",
     outputPlaylist
   ];
