@@ -251,7 +251,7 @@ const server = http.createServer(async (request, response) => {
         response.writeHead(405, { Allow: "GET, HEAD", "Cache-Control": "no-store" });
         response.end(); return;
       }
-      const match = /^\/api\/mkv-hls\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\/(index\.m3u8|index-\d{6}\.ts)$/.exec(requestUrl.pathname);
+      const match = /^\/api\/mkv-hls\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(index\.m3u8|index-\d{6}\.ts)$/.exec(requestUrl.pathname);
       if (!match) { response.writeHead(404); response.end(); return; }
       const asset = await readHlsAsset(match[1], match[2]);
       if (!asset) {
