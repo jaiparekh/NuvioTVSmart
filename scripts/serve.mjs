@@ -309,6 +309,26 @@ const server = http.createServer(async (request, response) => {
 await ensureLocalMediaRuntime();
 
 server.listen(port, host, async () => {
+  // Report missing integration configuration without logging credential values.
+  // These are warnings, not startup blockers: integrations are optional.
+  try {
+    const { env, sourcePath } = await readEnvProperties({ rootDir });
+    const configured = (key) => Boolean(String(env[key] || "").trim());
+    if (!sourcePath) {
+      console.warn("[config] No local.properties found; optional integrations may be unavailable.");
+    }
+    if (!configured("TMDB_API_KEY")) {
+      console.warn("[config] TMDB_API_KEY missing: TMDB-powered collections and metadata will not load.");
+    }
+    if (!configured("TRAKT_CLIENT_ID")) {
+      console.warn("[config] TRAKT_CLIENT_ID missing: Trakt account integration will be unavailable.");
+    }
+    if (!configured("NUVIO_SUPABASE_URL") || !configured("NUVIO_SUPABASE_ANON_KEY")) {
+      console.warn("[config] Supabase URL or anon key missing: Supabase-dependent features may be unavailable.");
+    }
+  } catch (error) {
+    console.warn("[config] Could not validate runtime configuration:", error?.message || String(error));
+  }
   const localHost = host === "0.0.0.0" ? "127.0.0.1" : host;
   const mediaPort = await findLocalMediaServerPort();
   console.log(`Serving Nuvio TV from ${rootDir}`);
