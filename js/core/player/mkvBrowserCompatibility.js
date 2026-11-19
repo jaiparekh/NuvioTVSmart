@@ -35,3 +35,24 @@ export async function closeMkvBrowserCompatibility(id, { fetchImpl = fetch } = {
     return response.ok;
   } catch { return false; }
 }
+
+/** Request a fresh HLS session for a different embedded track or source offset. */
+export async function replaceMkvBrowserCompatibility(id, { audioStreamIndex = null, startSeconds = 0 } = {}, { fetchImpl = fetch } = {}) {
+  if (typeof id !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) return null;
+  if (audioStreamIndex != null && (!Number.isSafeInteger(audioStreamIndex) || audioStreamIndex < 0)) return null;
+  if (!Number.isFinite(startSeconds) || startSeconds < 0 || startSeconds > 86400) return null;
+  try {
+    const response = await fetchImpl(`/api/mkv-browser/session/${id}`, {
+      method: "PUT", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audioStreamIndex, startSeconds }),
+      signal: AbortSignal.timeout(25000)
+    });
+    if (!response.ok) return null;
+    const result = await response.json();
+    if (result?.action !== "hls-session" ||
+        !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(result.id || "") ||
+        result.playlistUrl !== `/api/mkv-hls/${result.id}/index.m3u8`) return null;
+    return result;
+  } catch { return null; }
+}
