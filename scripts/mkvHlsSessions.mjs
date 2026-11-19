@@ -22,8 +22,8 @@ cleanupTimer.unref?.();
  * endpoint and performs NO source URL authorization: the caller must authorize
  * the source and enforce SSRF protection before invoking createHlsSession.
  */
-export async function createHlsSession({ sourceUrl, audioStreamIndex, startSeconds = 0, gateway = null }) {
-  if (sessions.size >= MAX_SESSIONS) throw new Error("Transcode capacity reached");
+export async function createHlsSession({ sourceUrl, audioStreamIndex, startSeconds = 0, gateway = null, reserved = false }) {
+  if (sessions.size + pendingSetups - (reserved ? 1 : 0) >= MAX_SESSIONS) throw new Error("Transcode capacity reached");
   const id = randomUUID();
   const directory = await mkdtemp(path.join(tmpdir(), "nuvio-mkv-"));
   const playlist = path.join(directory, "index.m3u8");
@@ -122,7 +122,6 @@ export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, sele
     throw error;
   }
   let handedOff = false;
-  let reservationReleased = false;
   try {
     const probe = await probeAudioCompatibility(gateway.url);
     if (!String(probe.container).split(",").some((name) => ["matroska", "webm"].includes(name))) {
@@ -130,20 +129,18 @@ export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, sele
     }
     const decision = decideMkvAudioCompatibility(probe, { selectedAudioStreamIndex });
     if (decision.action !== "transcode-audio") return decision;
-    // The reservation covers the entire setup; release it immediately before
-    // creating the actual FFmpeg session (no await between these operations).
-    pendingSetups--;
-    reservationReleased = true;
+    // Hold the reservation until createHlsSession has installed its session.
     const session = await createHlsSession({
       sourceUrl: gateway.url,
       audioStreamIndex: decision.audioStreamIndex,
       startSeconds,
-      gateway
+      gateway,
+      reserved: true
     });
     handedOff = true;
     return { ...decision, ...session, playlistUrl: `/api/mkv-hls/${session.id}/index.m3u8`, audioTracks: probe.audio };
   } finally {
-    if (!reservationReleased) pendingSetups--;
+    pendingSetups--;
     if (!handedOff) await gateway.close();
   }
 }
