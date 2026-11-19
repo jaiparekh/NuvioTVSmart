@@ -217,7 +217,10 @@ const server = http.createServer(async (request, response) => {
       console.info("[trakt-oauth] token exchange upstream", {
         status: upstream.status,
         contentType: upstreamContentType,
-        validJson: upstreamIsJson
+        validJson: upstreamIsJson,
+        edgeServer: upstream.headers.get("server") || "missing",
+        cloudflareRay: upstream.headers.get("cf-ray") || "missing",
+        requestId: upstream.headers.get("x-request-id") || "missing"
       });
       response.writeHead(upstream.status, {
         "Content-Type": upstreamContentType,
