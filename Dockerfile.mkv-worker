@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim AS node-runtime
 FROM lscr.io/linuxserver/ffmpeg:latest
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
-COPY scripts/mkvWorkerServer.mjs scripts/mkvHlsSessions.mjs scripts/mkvAudioCompatibility.mjs scripts/audioCompatibilityProbe.mjs scripts/mkvPinnedGateway.mjs scripts/mkvSourcePreflight.mjs scripts/mkvPlaylist.mjs ./
+COPY scripts/mkvWorkerServer.mjs scripts/mkvHlsSessions.mjs scripts/mkvAudioCompatibility.mjs scripts/audioCompatibilityProbe.mjs scripts/mkvPinnedGateway.mjs scripts/mkvSourcePreflight.mjs scripts/mkvSourceAuthorization.mjs scripts/mkvPlaylist.mjs ./
 # Keep the scripts' relative import paths unchanged.
 RUN mkdir -p /app/scripts && mv /app/*.mjs /app/scripts/
 ENV NUVIO_FFMPEG_PATH=/usr/bin/ffmpeg NUVIO_FFPROBE_PATH=/usr/bin/ffprobe NUVIO_MKV_WORKER_PORT=4180
