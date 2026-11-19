@@ -174,7 +174,7 @@ export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, sele
       sourceUrl, allowedHosts: [...allowedHosts],
       audioStreamIndex: decision.audioStreamIndex
     });
-    return { ...decision, action: "hls-session", transcodeAudio: decision.action === "transcode-audio", ...session, playlistUrl: `/api/mkv-hls/${session.id}/index.m3u8`, audioTracks: probe.audio };
+    return { ...decision, action: "hls-session", transcodeAudio: decision.action === "transcode-audio", ...session, startSeconds, playlistUrl: `/api/mkv-hls/${session.id}/index.m3u8`, audioTracks: probe.audio };
   } finally {
     pendingSetups--;
     if (!handedOff) await gateway.close();
