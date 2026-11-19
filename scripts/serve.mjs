@@ -185,6 +185,45 @@ async function proxyLocalMediaRequest(request, response, pathname) {
 const server = http.createServer(async (request, response) => {
   try {
     const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    // Browser bridge is available ONLY behind a separately authenticated
+    // same-host reverse proxy. Binding the application to loopback prevents
+    // clients from bypassing proxy authentication over the LAN.
+    if (requestUrl.pathname === "/api/mkv-browser/session" && request.method === "POST") {
+      const enabled = process.env.NUVIO_MKV_BROWSER_ENABLED === "1" &&
+        process.env.NUVIO_MKV_BROWSER_AUTHENTICATED_PROXY === "1" &&
+        ["127.0.0.1", "::1", "localhost"].includes(host);
+      const allowedHosts = (process.env.NUVIO_MKV_ALLOWED_HOSTS || "")
+        .split(",").map((value) => value.trim()).filter(Boolean);
+      const origin = String(request.headers.origin || "");
+      const expectedOrigin = `${request.headers["x-forwarded-proto"] === "https" ? "https" : "http"}://${request.headers.host}`;
+      const sameOrigin = origin === expectedOrigin &&
+        request.headers["sec-fetch-site"] === "same-origin" &&
+        ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress);
+      if (!enabled || !allowedHosts.length || !sameOrigin) {
+        response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return;
+      }
+      let size = 0; const chunks = [];
+      for await (const chunk of request) {
+        size += chunk.length;
+        if (size > 8192) { response.writeHead(413); response.end(); return; }
+        chunks.push(chunk);
+      }
+      let input;
+      try { input = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+      catch { response.writeHead(400); response.end(); return; }
+      if (typeof input?.sourceUrl !== "string") {
+        response.writeHead(400); response.end(); return;
+      }
+      try {
+        const result = await createAuthorizedMkvSession({ sourceUrl: input.sourceUrl, allowedHosts });
+        response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        response.end(JSON.stringify(result));
+      } catch {
+        response.writeHead(422, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        response.end(JSON.stringify({ error: "Compatibility unavailable" }));
+      }
+      return;
+    }
     // Explicitly configured staging API. Disabled unless a server-side secret
     // and exact upstream host allowlist are both present. Never publish the
     // secret through nuvio.env.js or embed it in the browser bundle.
