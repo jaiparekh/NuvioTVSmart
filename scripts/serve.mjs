@@ -201,7 +201,7 @@ const server = http.createServer(async (request, response) => {
       }
       const upstream = await fetch("https://auth.trakt.tv/oauth/token", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "trakt-api-version": "2", "trakt-api-key": env.TRAKT_CLIENT_ID },
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(12000)
       });
