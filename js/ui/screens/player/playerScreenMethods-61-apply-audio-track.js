@@ -21,6 +21,11 @@ export function createPlayerScreenMethods61() {
       if (!selectedEntry) {
         return;
       }
+      if (this.mkvCompatibilitySession?.id && Number.isSafeInteger(selectedEntry.mkvAudioStreamIndex)) {
+        if (rememberSelection) this.userAudioTrackSelected = true;
+        void this.selectMkvCompatibilityAudioStream(selectedEntry.mkvAudioStreamIndex).catch(() => {});
+        return;
+      }
       if (this.isAudioEntryPending(selectedEntry)) {
         return;
       }
