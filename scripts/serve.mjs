@@ -199,7 +199,7 @@ const server = http.createServer(async (request, response) => {
           !["authorization_code", "refresh_token"].includes(body.grant_type)) {
         response.writeHead(400); response.end(); return;
       }
-      const upstream = await fetch("https://api.trakt.tv/oauth/token", {
+      const upstream = await fetch("https://auth.trakt.tv/oauth/token", {
         method: "POST",
         headers: { "Content-Type": "application/json", "trakt-api-version": "2", "trakt-api-key": env.TRAKT_CLIENT_ID },
         body: JSON.stringify(body),
