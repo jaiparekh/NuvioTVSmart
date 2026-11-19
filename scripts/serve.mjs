@@ -1,7 +1,7 @@
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { buildRuntimeEnvScript, readEnvProperties } from "./envProperties.mjs";
@@ -54,33 +54,25 @@ function getLanUrls() {
   return Array.from(new Set(urls)).sort();
 }
 
-function resolveRequestPath(urlPathname) {
-  let pathname = decodeURIComponent(String(urlPathname || "/"));
-  if (pathname === "/") {
-    pathname = "/index.html";
-  }
-  const normalized = path.normalize(pathname).replace(/^(\.\.[/\\])+/, "");
-  return path.join(rootDir, normalized);
-}
-
-function resolveDistPathForRootFile(rootFilePath) {
-  const relativePath = path.relative(rootDir, rootFilePath);
-  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-    return "";
-  }
-  return path.join(distDir, relativePath);
-}
-
+// Only built, public assets may be served. Never fall back to the repository root.
 async function resolveRequestFile(pathname) {
-  const rootPath = resolveRequestPath(pathname);
-  const rootStat = await stat(rootPath).catch(() => null);
-  const distPath = resolveDistPathForRootFile(rootPath);
-  const distStat = distPath ? await stat(distPath).catch(() => null) : null;
-  if (distStat?.isFile()) {
-    return { filePath: distPath, fileStat: distStat };
+  let decoded;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return null;
   }
-
-  return { filePath: rootPath, fileStat: rootStat };
+  if (decoded.includes("\\") || decoded.includes("\0")) return null;
+  const segments = decoded.split("/");
+  if (segments.some((segment) => segment === ".." || segment.startsWith("."))) return null;
+  const relative = decoded === "/" ? "index.html" : decoded.replace(/^\/+/, "");
+  const candidate = path.resolve(distDir, relative);
+  if (candidate !== distDir && !candidate.startsWith(distDir + path.sep)) return null;
+  const resolved = await realpath(candidate).catch(() => null);
+  if (!resolved || !resolved.startsWith(distDir + path.sep)) return null;
+  const fileStat = await stat(resolved).catch(() => null);
+  if (!fileStat?.isFile()) return null;
+  return { filePath: resolved, fileStat };
 }
 
 function requestLocalMediaPath(
@@ -210,20 +202,15 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
-    let { filePath, fileStat } = await resolveRequestFile(requestUrl.pathname);
+    const resolvedFile = await resolveRequestFile(requestUrl.pathname);
 
-    if (fileStat?.isDirectory()) {
-      filePath = path.join(filePath, "index.html");
-      fileStat = await stat(filePath).catch(() => null);
-    }
-
-    if (!fileStat?.isFile()) {
+    if (!resolvedFile) {
       response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       response.end("Not found");
       return;
     }
 
-    const fileContents = await readFile(filePath);
+    const fileContents = await readFile(resolvedFile.filePath);
     response.writeHead(200, {
       "Cache-Control": "no-store",
       "Content-Type": getContentType(filePath)
