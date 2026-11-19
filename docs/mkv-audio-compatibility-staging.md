@@ -74,6 +74,6 @@ for future replacements or teardown.
 **Current limitations:** The browser is not yet wired to this endpoint.
 Seeking creates a new HLS timeline starting at the requested source offset;
 clients must restore the displayed absolute playback position separately.
-Switching to an already compatible AAC/MP3 track currently returns a direct
-playback decision rather than an HLS session. The API is not suitable for
+Switching to an already compatible AAC/MP3 track retains an HLS session,
+copying the compatible audio rather than transcoding it. The API is not suitable for
 multi-user production use until session ownership and rate limits are added.
