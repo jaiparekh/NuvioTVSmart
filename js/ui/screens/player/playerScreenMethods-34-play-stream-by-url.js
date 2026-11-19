@@ -1,7 +1,7 @@
 /* eslint-disable no-unused-vars */
 import * as internals from "./playerScreenContext.js";
 import { LastPlaybackStore } from "../../../data/local/lastPlaybackStore.js";
-import { shouldTryMkvBrowserCompatibility, requestMkvBrowserCompatibility } from "../../../core/player/mkvBrowserCompatibility.js";
+import { shouldTryMkvBrowserCompatibility, requestMkvBrowserCompatibility, closeMkvBrowserCompatibility } from "../../../core/player/mkvBrowserCompatibility.js";
 
 export function createPlayerScreenMethods34() {
   const {
@@ -53,6 +53,12 @@ export function createPlayerScreenMethods34() {
         return;
       }
 
+      // Release previous compatibility transcode when changing playback sources.
+      if (this.mkvCompatibilitySession?.id) {
+        const previousId = this.mkvCompatibilitySession.id;
+        this.mkvCompatibilitySession = null;
+        void closeMkvBrowserCompatibility(previousId);
+      }
       const normalizedStreamUrl = String(streamUrl || "").trim();
       const previousSourceCandidate = this.getCurrentStreamCandidate();
       const sourceCandidate =
