@@ -77,3 +77,37 @@ clients must restore the displayed absolute playback position separately.
 Switching to an already compatible AAC/MP3 track retains an HLS session,
 copying the compatible audio rather than transcoding it. The API is not suitable for
 multi-user production use until session ownership and rate limits are added.
+
+## Chrome browser bridge (experimental)
+
+The Chrome player now attempts automatic HLS compatibility for URLs whose path
+ends in `.mkv`. The request is **fail-closed**: if the bridge is disabled or
+fails, the existing player path is used. Tizen and webOS are excluded.
+
+This bridge requires an **authenticated HTTPS reverse proxy on the same host**.
+Do not enable it on an Internet-facing, unauthenticated Nuvio installation.
+The Node application must be bound to loopback so clients cannot bypass proxy
+authentication. Example server-only environment:
+
+```sh
+HOST=127.0.0.1
+NUVIO_MKV_BROWSER_ENABLED=1
+NUVIO_MKV_BROWSER_AUTHENTICATED_PROXY=1
+NUVIO_MKV_ALLOWED_HOSTS=media.example.com
+```
+
+The proxy must authenticate every browser request, forward the original Host
+header, set `X-Forwarded-Proto: https`, and forward the browser's Origin and
+Sec-Fetch-Site headers. The Node app must not be reachable directly from the
+network. The two browser flags are an **operator attestation**, not a built-in
+login system; never set them without an enforced proxy authentication layer.
+
+The browser bridge creates a server-side session without exposing the staging
+bearer token. It supports initial HLS playback and best-effort teardown on
+source change. Browser audio-dialog switching and seeking are **not yet wired**
+to the replacement API; the staging API already supports those operations.
+Signed URLs whose path does not end in `.mkv` are not automatically detected.
+
+This is experimental and must be tested in Chrome with real signed media before
+considering a production rollout. In particular, the player startup path,
+subtitles, track discovery, and session cleanup need integration validation.
