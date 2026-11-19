@@ -205,11 +205,25 @@ const server = http.createServer(async (request, response) => {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(12000)
       });
+      const upstreamContentType = upstream.headers.get("content-type") || "missing";
+      const upstreamBody = await upstream.text();
+      let upstreamIsJson = false;
+      try {
+        JSON.parse(upstreamBody);
+        upstreamIsJson = true;
+      } catch {
+        // Keep upstream bodies private: they may contain credentials or tokens.
+      }
+      console.info("[trakt-oauth] token exchange upstream", {
+        status: upstream.status,
+        contentType: upstreamContentType,
+        validJson: upstreamIsJson
+      });
       response.writeHead(upstream.status, {
-        "Content-Type": "application/json; charset=utf-8",
+        "Content-Type": upstreamContentType,
         "Cache-Control": "no-store"
       });
-      response.end(await upstream.text());
+      response.end(upstreamBody);
       return;
     }
     if (requestUrl.pathname === "/trakt/callback") {
