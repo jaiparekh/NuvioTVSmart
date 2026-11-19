@@ -207,24 +207,6 @@ const server = http.createServer(async (request, response) => {
       });
       const upstreamContentType = upstream.headers.get("content-type") || "missing";
       const upstreamBody = await upstream.text();
-      let upstreamIsJson = false;
-      try {
-        JSON.parse(upstreamBody);
-        upstreamIsJson = true;
-      } catch {
-        // Keep upstream bodies private: they may contain credentials or tokens.
-      }
-      console.info("[trakt-oauth] token exchange upstream", {
-        status: upstream.status,
-        contentType: upstreamContentType,
-        validJson: upstreamIsJson,
-        edgeServer: upstream.headers.get("server") || "missing",
-        cloudflareRay: upstream.headers.get("cf-ray") || "missing",
-        requestId: upstream.headers.get("x-request-id") || "missing",
-        cloudflareMitigation: upstream.headers.get("cf-mitigated") || "missing",
-        cloudflareChallengePage: /\/cdn-cgi\/challenge-platform\/|cf-chl-|Just a moment/i.test(upstreamBody),
-        cloudflareBlockPage: /error code: 1020|attention required|sorry, you have been blocked/i.test(upstreamBody)
-      });
       response.writeHead(upstream.status, {
         "Content-Type": upstreamContentType,
         "Cache-Control": "no-store"
