@@ -6,6 +6,11 @@ services:
       dockerfile: Dockerfile
     ports:
       - "4173:4173"
+    devices:
+      - /dev/dri:/dev/dri               # Required for hardware acceleration/transcoding
+    group_add:
+      - "993"                           # Replace with your render group (run 'getent group render')
+      - "44"                           # Replace with your render group (run 'getent group video')
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
