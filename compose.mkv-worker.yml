@@ -18,4 +18,5 @@ services:
   # NUVIO_MKV_WORKER_TOKEN: ${NUVIO_MKV_WORKER_TOKEN}
 networks:
   nuvio-mkv-internal:
-    internal: true
+    # Egress is required to retrieve allowlisted HTTPS media sources.
+    # No worker ports are published to the host.
