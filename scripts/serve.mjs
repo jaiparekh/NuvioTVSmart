@@ -220,7 +220,10 @@ const server = http.createServer(async (request, response) => {
         validJson: upstreamIsJson,
         edgeServer: upstream.headers.get("server") || "missing",
         cloudflareRay: upstream.headers.get("cf-ray") || "missing",
-        requestId: upstream.headers.get("x-request-id") || "missing"
+        requestId: upstream.headers.get("x-request-id") || "missing",
+        cloudflareMitigation: upstream.headers.get("cf-mitigated") || "missing",
+        cloudflareChallengePage: /\/cdn-cgi\/challenge-platform\/|cf-chl-|Just a moment/i.test(upstreamBody),
+        cloudflareBlockPage: /error code: 1020|attention required|sorry, you have been blocked/i.test(upstreamBody)
       });
       response.writeHead(upstream.status, {
         "Content-Type": upstreamContentType,
