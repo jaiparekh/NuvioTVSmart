@@ -287,10 +287,13 @@ export function createPlayerScreenMethods34() {
       })) {
         try {
           const compatible = await requestMkvBrowserCompatibility(normalizedStreamUrl);
-          if (!this.isActiveMountToken(mountToken) || this.activePlaybackUrl !== streamUrl) return;
+          if (!this.isActiveMountToken(mountToken) || this.activePlaybackUrl !== streamUrl) {
+            if (compatible?.id) void closeMkvBrowserCompatibility(compatible.id);
+            return;
+          }
           if (compatible) {
             this.mkvCompatibilitySession = compatible;
-            this.activePlaybackUrl = compatible.playlistUrl;
+            this.activePlaybackUrl = new URL(compatible.playlistUrl, globalThis.location.origin).href;
           }
         } catch (_) {
           // Preserve the original playback path if the optional bridge fails.
