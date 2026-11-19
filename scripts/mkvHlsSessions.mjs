@@ -58,6 +58,7 @@ export async function createHlsSession({ sourceUrl, audioStreamIndex, startSecon
 export async function readHlsAsset(id, filename) {
   const session = sessions.get(id);
   if (!session || session.closed) return null;
+  if (session.error) throw new Error(session.error);
   if (!/^(index\.m3u8|index-\d{6}\.ts)$/.test(filename)) return null;
   session.lastAccess = Date.now();
   const target = path.join(session.directory, filename);
@@ -75,6 +76,13 @@ export async function closeHlsSession(id) {
   sessions.delete(id);
   session.closed = true;
   if (session.child.exitCode === null && !session.child.killed) session.child.kill("SIGKILL");
+  // A killed FFmpeg process may still be writing segments. Wait for exit before deletion.
+  if (session.child.exitCode === null && session.child.signalCode === null) {
+    await Promise.race([
+      new Promise((resolve) => session.child.once("close", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 2000))
+    ]);
+  }
   await rm(session.directory, { recursive: true, force: true });
 }
 
