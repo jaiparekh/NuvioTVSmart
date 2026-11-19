@@ -1,0 +1,15 @@
+.git
+.github
+node_modules
+dist
+.cache
+logs
+*.log
+*.wgt
+*.ipk
+*.zip
+local.properties
+.env
+.env.*
+Dockerfile*
+compose*.yaml
