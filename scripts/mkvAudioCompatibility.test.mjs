@@ -53,3 +53,24 @@ test("rejects unsafe FFmpeg stream indexes", () => {
     sourceUrl: "https://example.org/a.mkv", audioStreamIndex: -1, outputPlaylist: "/tmp/x.m3u8"
   }));
 });
+
+test("generates a complete seekable HLS VOD playlist", () => {
+  const args = buildMkvHlsArguments({
+    sourceUrl: "https://example.org/movie.mkv",
+    audioStreamIndex: 1,
+    outputPlaylist: "/tmp/session/index.m3u8",
+    startSeconds: 120
+  });
+  assert.deepEqual(args.slice(args.indexOf("-hls_list_size"), args.indexOf("-hls_segment_filename")), [
+    "-hls_list_size", "0", "-hls_playlist_type", "vod"
+  ]);
+  assert.deepEqual(args.slice(args.indexOf("-ss"), args.indexOf("-i")), ["-ss", "120"]);
+});
+
+test("rejects non-http inputs and embedded URL credentials", () => {
+  for (const sourceUrl of ["file:///etc/passwd", "http://user:pass@example.org/movie.mkv", "not-a-url"]) {
+    assert.throws(() => buildMkvHlsArguments({
+      sourceUrl, audioStreamIndex: 1, outputPlaylist: "/tmp/session/index.m3u8"
+    }));
+  }
+});
