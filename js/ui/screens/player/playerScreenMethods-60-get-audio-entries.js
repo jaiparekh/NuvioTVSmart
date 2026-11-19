@@ -320,20 +320,6 @@ export function createPlayerScreenMethods60() {
       this.renderAudioDialog();
     },
     openAudioDialog() {
-      // Install once on this player instance. The existing audio dialog calls
-      // applyAudioTrack(index); intercept only entries from a converted MKV.
-      if (!this.mkvCompatibilityApplyAudioWrapped && typeof this.applyAudioTrack === "function") {
-        const originalApplyAudioTrack = this.applyAudioTrack;
-        this.applyAudioTrack = function(index, ...args) {
-          const entry = this.getAudioEntries()?.[index];
-          if (this.mkvCompatibilitySession?.id && Number.isSafeInteger(entry?.mkvAudioStreamIndex)) {
-            void this.selectMkvCompatibilityAudioStream(entry.mkvAudioStreamIndex).catch(() => {});
-            return true;
-          }
-          return originalApplyAudioTrack.call(this, index, ...args);
-        };
-        this.mkvCompatibilityApplyAudioWrapped = true;
-      }
       this.cancelSeekPreview({ commit: false });
       this.syncTrackState();
       this.applyAudioAmplification();
