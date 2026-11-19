@@ -88,7 +88,7 @@ export async function waitForHlsSessionReady(id, { timeoutMs = STARTUP_TIMEOUT_M
     const playlist = await readHlsAsset(id, "index.m3u8");
     if (playlist) {
       const body = playlist.bytes.toString("utf8");
-      const firstSegment = body.match(/(?:^|\\n)(index-\\d{6}\\.ts)(?:\\r?\\n|$)/);
+      const firstSegment = body.match(/(?:^|\n)(index-\d{6}\.ts)(?:\r?\n|$)/);
       if (firstSegment && await readHlsAsset(id, firstSegment[1])) return;
     }
     if (session.child.exitCode !== null || session.child.signalCode !== null) {
