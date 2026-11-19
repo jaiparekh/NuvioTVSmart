@@ -34,9 +34,14 @@ export async function preflightMkvSource(sourceUrl, allowedHosts, resolve = look
   } catch {
     return { allowed: false, reason: "dns-failed" };
   }
-  if (!Array.isArray(addresses) || addresses.length === 0 ||
-      addresses.some((entry) => !isPublicIpv4(entry?.address))) {
-    return { allowed: false, reason: "non-public-or-ipv6-address" };
+  // IPv6 records are ignored because the pinned gateway currently connects over
+  // IPv4 only. Reject any unsafe IPv4 result, even alongside safe IPv4 records.
+  // Never hand an unchecked DNS address to the gateway's custom lookup.
+  const ipv4 = Array.isArray(addresses)
+    ? addresses.filter((entry) => entry?.family === 4 && isIP(entry.address) === 4)
+    : [];
+  if (ipv4.length === 0 || ipv4.some((entry) => !isPublicIpv4(entry.address))) {
+    return { allowed: false, reason: "no-safe-public-ipv4-address" };
   }
-  return { allowed: true, hostname: hostCheck.hostname, addresses: addresses.map((entry) => entry.address) };
+  return { allowed: true, hostname: hostCheck.hostname, addresses: ipv4.map((entry) => entry.address) };
 }
