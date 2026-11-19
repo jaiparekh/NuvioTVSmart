@@ -183,6 +183,15 @@ async function proxyLocalMediaRequest(request, response, pathname) {
 const server = http.createServer(async (request, response) => {
   try {
     const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    if (requestUrl.pathname === "/trakt/callback") {
+      const redirect = new URL("/", `http://${request.headers.host || "localhost"}`);
+      for (const key of ["code", "state", "error", "error_description"]) {
+        if (requestUrl.searchParams.has(key)) redirect.searchParams.set("trakt_" + key, requestUrl.searchParams.get(key));
+      }
+      response.writeHead(302, { Location: redirect.pathname + redirect.search, "Cache-Control": "no-store" });
+      response.end();
+      return;
+    }
     if (requestUrl.pathname === "/nuvio.env.js") {
       const { env } = await readEnvProperties({ rootDir });
       response.writeHead(200, {
