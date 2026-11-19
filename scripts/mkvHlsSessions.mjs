@@ -13,6 +13,7 @@ const MAX_SESSIONS = 2;
 const SESSION_IDLE_MS = 5 * 60 * 1000;
 const STARTUP_TIMEOUT_MS = 20_000;
 const sessions = new Map();
+const sourceContexts = new Map();
 let pendingSetups = 0;
 const cleanupTimer = setInterval(() => {
   void cleanupIdleHlsSessions().catch(() => {});
@@ -104,6 +105,7 @@ export async function closeHlsSession(id) {
   const session = sessions.get(id);
   if (!session) return;
   sessions.delete(id);
+  sourceContexts.delete(id);
   session.closed = true;
   if (session.child.exitCode === null && !session.child.killed) session.child.kill("SIGKILL");
   // A killed FFmpeg process may still be writing segments. Wait for exit before deletion.
@@ -167,9 +169,39 @@ export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, sele
       await closeHlsSession(session.id);
       throw error;
     }
+    sourceContexts.set(session.id, {
+      sourceUrl, allowedHosts: [...allowedHosts],
+      audioStreamIndex: decision.audioStreamIndex
+    });
     return { ...decision, ...session, playlistUrl: `/api/mkv-hls/${session.id}/index.m3u8`, audioTracks: probe.audio };
   } finally {
     pendingSetups--;
     if (!handedOff) await gateway.close();
   }
+}
+
+/**
+ * Replace an owned session for a different embedded audio stream or a seek.
+ * The upstream URL comes exclusively from the existing server-side context;
+ * callers cannot redirect a session to a new arbitrary source.
+ * The old session is closed first to free its capacity and FFmpeg process.
+ * This operation is not atomic: failed replacements leave the old session closed.
+ */
+export async function replaceAuthorizedMkvSession({ id, selectedAudioStreamIndex = null, startSeconds = 0 }) {
+  const context = sourceContexts.get(id);
+  if (!context) throw new Error("Unknown or expired MKV session");
+  if (selectedAudioStreamIndex != null &&
+      (!Number.isSafeInteger(selectedAudioStreamIndex) || selectedAudioStreamIndex < 0)) {
+    throw new Error("Invalid audio stream index");
+  }
+  if (!Number.isFinite(startSeconds) || startSeconds < 0 || startSeconds > 86400) {
+    throw new Error("Invalid start time");
+  }
+  await closeHlsSession(id);
+  return createAuthorizedMkvSession({
+    sourceUrl: context.sourceUrl,
+    allowedHosts: context.allowedHosts,
+    selectedAudioStreamIndex: selectedAudioStreamIndex ?? context.audioStreamIndex,
+    startSeconds
+  });
 }
