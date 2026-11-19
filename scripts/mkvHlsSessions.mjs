@@ -8,7 +8,7 @@ import { probeAudioCompatibility } from "./audioCompatibilityProbe.mjs";
 import { createPinnedMkvGateway } from "./mkvPinnedGateway.mjs";
 import { firstHlsSegmentName } from "./mkvPlaylist.mjs";
 
-const FFMPEG = process.env.NUVIO_FFMPEG_PATH || "/usr/bin/ffmpeg";
+const FFMPEG = process.env.NUVIO_FFMPEG_PATH || "/opt/ffmpeg/bin/ffmpeg";
 const MAX_SESSIONS = 2;
 const SESSION_IDLE_MS = 5 * 60 * 1000;
 const STARTUP_TIMEOUT_MS = 20_000;
