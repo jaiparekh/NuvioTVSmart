@@ -5,7 +5,8 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { buildRuntimeEnvScript, readEnvProperties } from "./envProperties.mjs";
-import { readHlsAsset, closeAllHlsSessions } from "./mkvHlsSessions.mjs";
+import { readHlsAsset, closeAllHlsSessions, createAuthorizedMkvSession, closeHlsSession } from "./mkvHlsSessions.mjs";
+import { timingSafeEqual } from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -184,6 +185,65 @@ async function proxyLocalMediaRequest(request, response, pathname) {
 const server = http.createServer(async (request, response) => {
   try {
     const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    // Explicitly configured staging API. Disabled unless a server-side secret
+    // and exact upstream host allowlist are both present. Never publish the
+    // secret through nuvio.env.js or embed it in the browser bundle.
+    if (requestUrl.pathname === "/api/mkv-hls/session" && request.method === "POST") {
+      const secret = process.env.NUVIO_MKV_API_TOKEN || "";
+      const allowedHosts = (process.env.NUVIO_MKV_ALLOWED_HOSTS || "")
+        .split(",").map((value) => value.trim()).filter(Boolean);
+      const supplied = String(request.headers.authorization || "").replace(/^Bearer /, "");
+      const expected = Buffer.from(secret);
+      const actual = Buffer.from(supplied);
+      if (secret.length < 32 || !allowedHosts.length ||
+          expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+        response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return;
+      }
+      if (request.headers.origin) {
+        response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return;
+      }
+      let length = 0; const chunks = [];
+      for await (const chunk of request) {
+        length += chunk.length;
+        if (length > 8192) { response.writeHead(413); response.end(); return; }
+        chunks.push(chunk);
+      }
+      let input;
+      try { input = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+      catch { response.writeHead(400); response.end(); return; }
+      if (typeof input?.sourceUrl !== "string" ||
+          (input.audioStreamIndex != null && (!Number.isSafeInteger(input.audioStreamIndex) || input.audioStreamIndex < 0)) ||
+          (input.startSeconds != null && (!Number.isFinite(input.startSeconds) || input.startSeconds < 0 || input.startSeconds > 86400))) {
+        response.writeHead(400); response.end(); return;
+      }
+      try {
+        const result = await createAuthorizedMkvSession({
+          sourceUrl: input.sourceUrl, allowedHosts,
+          selectedAudioStreamIndex: input.audioStreamIndex ?? null,
+          startSeconds: input.startSeconds ?? 0
+        });
+        response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        response.end(JSON.stringify(result));
+      } catch {
+        response.writeHead(422, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        response.end(JSON.stringify({ error: "Media session could not be created" }));
+      }
+      return;
+    }
+    if (requestUrl.pathname.startsWith("/api/mkv-hls/session/") && request.method === "DELETE") {
+      const secret = process.env.NUVIO_MKV_API_TOKEN || "";
+      const supplied = String(request.headers.authorization || "").replace(/^Bearer /, "");
+      const a = Buffer.from(secret), b = Buffer.from(supplied);
+      if (secret.length < 32 || a.length !== b.length || !timingSafeEqual(a, b)) {
+        response.writeHead(403); response.end(); return;
+      }
+      const id = requestUrl.pathname.slice("/api/mkv-hls/session/".length);
+      if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) {
+        response.writeHead(404); response.end(); return;
+      }
+      await closeHlsSession(id);
+      response.writeHead(204, { "Cache-Control": "no-store" }); response.end(); return;
+    }
     // Capability-scoped HLS assets. Sessions can only be created by a separately
     // authorized source resolver; this route accepts no arbitrary upstream URL.
     if (requestUrl.pathname.startsWith("/api/mkv-hls/")) {
