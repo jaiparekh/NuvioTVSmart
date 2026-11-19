@@ -213,7 +213,7 @@ const server = http.createServer(async (request, response) => {
     const fileContents = await readFile(resolvedFile.filePath);
     response.writeHead(200, {
       "Cache-Control": "no-store",
-      "Content-Type": getContentType(filePath)
+      "Content-Type": getContentType(resolvedFile.filePath)
     });
     response.end(fileContents);
   } catch (error) {
