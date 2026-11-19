@@ -52,3 +52,28 @@ curl -X DELETE "http://127.0.0.1:4173/api/mkv-hls/session/<id>" \
 - Range behavior, HLS playback, FFmpeg process cleanup and security boundaries
   require live tests with real MKV media before production use.
 - Upstream authorization headers and redirected media URLs are not supported.
+
+## Audio-track switching and seeking (staging API)
+
+Once a session has been created, replace it using its returned `id`:
+
+```sh
+curl -fsS -X PUT "http://127.0.0.1:4173/api/mkv-hls/session/<id>" \\
+  -H "Authorization: Bearer $NUVIO_MKV_API_TOKEN" \\
+  -H 'Content-Type: application/json' \\
+  --data '{"audioStreamIndex":3,"startSeconds":120}'
+```
+
+The response contains a **new** session ID and playlist URL; use that URL
+for subsequent playback. The previous session is stopped first, so a failed
+replacement cannot resume the old session. Omit `audioStreamIndex` to retain
+the selected track. The original upstream URL is kept on the server and is
+never accepted from the replacement request. The client must track the new ID
+for future replacements or teardown.
+
+**Current limitations:** The browser is not yet wired to this endpoint.
+Seeking creates a new HLS timeline starting at the requested source offset;
+clients must restore the displayed absolute playback position separately.
+Switching to an already compatible AAC/MP3 track currently returns a direct
+playback decision rather than an HLS session. The API is not suitable for
+multi-user production use until session ownership and rate limits are added.
