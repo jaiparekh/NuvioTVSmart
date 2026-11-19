@@ -144,6 +144,15 @@ export function createTrackingSettingsMethods() {
     },
 
     async startTraktDeviceAuth() {
+      if (Platform.isBrowser()) {
+        try {
+          await TraktAuthService.startBrowserAuth();
+        } catch (error) {
+          this.traktErrorMessage = String(error?.message || error);
+          await this.render();
+        }
+        return;
+      }
       const profileId = ProfileManager.getActiveProfileId();
       const generation = this.trackingWorkGeneration || 0;
       const current = () =>
