@@ -1,0 +1,21 @@
+# Merge with your existing Nuvio Compose project; do not publish worker ports.
+services:
+  nuvio-ffmpeg:
+    build:
+      context: .
+      dockerfile: Dockerfile.mkv-worker
+    restart: unless-stopped
+    environment:
+      NUVIO_MKV_WORKER_TOKEN: ${NUVIO_MKV_WORKER_TOKEN:?Set a random 32+ character secret}
+    networks:
+      - nuvio-mkv-internal
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+  # Add these environment values and the network to your EXISTING Nuvio service:
+  # NUVIO_MKV_WORKER_URL: http://nuvio-ffmpeg:4180
+  # NUVIO_MKV_WORKER_TOKEN: ${NUVIO_MKV_WORKER_TOKEN}
+networks:
+  nuvio-mkv-internal:
+    internal: true
