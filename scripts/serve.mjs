@@ -224,6 +224,48 @@ const server = http.createServer(async (request, response) => {
       }
       return;
     }
+    if (requestUrl.pathname.startsWith("/api/mkv-browser/session/") && request.method === "PUT") {
+      const enabled = process.env.NUVIO_MKV_BROWSER_ENABLED === "1" &&
+        process.env.NUVIO_MKV_BROWSER_AUTHENTICATED_PROXY === "1" &&
+        ["127.0.0.1", "::1", "localhost"].includes(host);
+      const expectedOrigin = `${request.headers["x-forwarded-proto"] === "https" ? "https" : "http"}://${request.headers.host}`;
+      if (!enabled || request.headers.origin !== expectedOrigin ||
+          request.headers["sec-fetch-site"] !== "same-origin" ||
+          !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress)) {
+        response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return;
+      }
+      const id = requestUrl.pathname.slice("/api/mkv-browser/session/".length);
+      if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) {
+        response.writeHead(404); response.end(); return;
+      }
+      let size = 0; const chunks = [];
+      for await (const chunk of request) {
+        size += chunk.length;
+        if (size > 4096) { response.writeHead(413); response.end(); return; }
+        chunks.push(chunk);
+      }
+      let input;
+      try { input = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+      catch { response.writeHead(400); response.end(); return; }
+      if (!input || typeof input !== "object" || Array.isArray(input) ||
+          (input.audioStreamIndex != null && (!Number.isSafeInteger(input.audioStreamIndex) || input.audioStreamIndex < 0)) ||
+          (input.startSeconds != null && (!Number.isFinite(input.startSeconds) || input.startSeconds < 0 || input.startSeconds > 86400))) {
+        response.writeHead(400); response.end(); return;
+      }
+      try {
+        const result = await replaceAuthorizedMkvSession({
+          id,
+          selectedAudioStreamIndex: input.audioStreamIndex ?? null,
+          startSeconds: input.startSeconds ?? 0
+        });
+        response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        response.end(JSON.stringify(result));
+      } catch {
+        response.writeHead(422, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        response.end(JSON.stringify({ error: "Compatibility replacement unavailable" }));
+      }
+      return;
+    }
     if (requestUrl.pathname.startsWith("/api/mkv-browser/session/") && request.method === "DELETE") {
       const enabled = process.env.NUVIO_MKV_BROWSER_ENABLED === "1" &&
         process.env.NUVIO_MKV_BROWSER_AUTHENTICATED_PROXY === "1" &&
