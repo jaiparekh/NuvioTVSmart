@@ -6,6 +6,6 @@ WORKDIR /app
 COPY scripts/mkvWorkerServer.mjs scripts/mkvHlsSessions.mjs scripts/mkvAudioCompatibility.mjs scripts/audioCompatibilityProbe.mjs scripts/mkvPinnedGateway.mjs scripts/mkvSourcePreflight.mjs scripts/mkvSourceAuthorization.mjs scripts/mkvPlaylist.mjs ./
 # Keep the scripts' relative import paths unchanged.
 RUN mkdir -p /app/scripts && mv /app/*.mjs /app/scripts/
-ENV NUVIO_FFMPEG_PATH=ffmpeg NUVIO_FFPROBE_PATH=ffprobe NUVIO_MKV_WORKER_PORT=4180
+ENV NUVIO_FFMPEG_PATH=/usr/local/bin/ffmpeg NUVIO_FFPROBE_PATH=/usr/local/bin/ffprobe NUVIO_MKV_WORKER_PORT=4180
 EXPOSE 4180
 ENTRYPOINT ["/usr/local/bin/node", "/app/scripts/mkvWorkerServer.mjs"]
