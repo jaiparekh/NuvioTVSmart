@@ -202,7 +202,7 @@ export function createPlayerScreenMethods60() {
         ...this.buildPlaybackContext(this.getCurrentStreamCandidate()),
         forceEngine: "hls.js",
         requestHeaders: {},
-        sourceType: "application/vnd.apple.mpegurl"
+        mediaSourceType: "application/vnd.apple.mpegurl"
       }, { sourceCandidate: this.getCurrentStreamCandidate() });
       return true;
     },
