@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars */
 import * as internals from "./playerScreenContext.js";
+import { replaceMkvBrowserCompatibility, closeMkvBrowserCompatibility } from "../../../core/player/mkvBrowserCompatibility.js";
 
 export function createPlayerScreenMethods60() {
   const {
@@ -14,6 +15,29 @@ export function createPlayerScreenMethods60() {
 
   return {
     getAudioEntries() {
+      // A converted HLS playlist exposes only the chosen output audio track.
+      // Present the original MKV's embedded tracks instead, with source indexes.
+      const mkvSession = this.mkvCompatibilitySession;
+      if (mkvSession?.id && Array.isArray(mkvSession.audioTracks) && mkvSession.audioTracks.length) {
+        return mkvSession.audioTracks.map((track, index) => {
+          const display = formatAudioTrackDisplay({
+            ...track, codec: track.codec || track.codec_name,
+            language: track.language || track.lang,
+            channels: track.channels
+          }, index);
+          return {
+            id: `audio-mkv-${track.index}`,
+            label: display.label,
+            secondary: display.secondary,
+            languageText: display.languageText,
+            metadata: display.metadata,
+            selected: track.index === mkvSession.audioStreamIndex,
+            supported: true,
+            mkvAudioStreamIndex: track.index,
+            track
+          };
+        });
+      }
       const cachedEntries = this.trackDialogCache?.audioEntries;
       if (cachedEntries) {
         return cachedEntries;
@@ -154,6 +178,33 @@ export function createPlayerScreenMethods60() {
 
       this.trackDialogCache.audioEntries = entries;
       return entries;
+    },
+    /** Switch the MKV source audio stream, retaining the current playback position. */
+    async selectMkvCompatibilityAudioStream(audioStreamIndex) {
+      const current = this.mkvCompatibilitySession;
+      if (!current?.id || !current.audioTracks?.some((track) => track.index === audioStreamIndex)) return false;
+      if (current.audioStreamIndex === audioStreamIndex) return true;
+      const offset = Number(PlayerController.getCurrentTime?.() ?? PlayerController.video?.currentTime ?? 0);
+      const next = await replaceMkvBrowserCompatibility(current.id, {
+        audioStreamIndex,
+        startSeconds: Math.max(0, Number.isFinite(offset) ? offset : 0)
+      });
+      if (!next) return false;
+      if (this.mkvCompatibilitySession?.id !== current.id) {
+        void closeMkvBrowserCompatibility(next.id);
+        return false;
+      }
+      this.mkvCompatibilitySession = next;
+      this.activePlaybackUrl = new URL(next.playlistUrl, globalThis.location.origin).href;
+      this.invalidateTrackDialogCaches();
+      this.renderAudioDialog();
+      await this.startPlayerControllerPlayback(this.activePlaybackUrl, {
+        ...this.buildPlaybackContext(this.getCurrentStreamCandidate()),
+        forceEngine: "hls.js",
+        requestHeaders: {},
+        sourceType: "application/vnd.apple.mpegurl"
+      }, { sourceCandidate: this.getCurrentStreamCandidate() });
+      return true;
     },
     getImplicitAudioEntry() {
       const currentStream = this.getCurrentStreamCandidate()?.raw || this.getCurrentStreamCandidate() || {};
