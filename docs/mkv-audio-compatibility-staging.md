@@ -103,11 +103,22 @@ network. The two browser flags are an **operator attestation**, not a built-in
 login system; never set them without an enforced proxy authentication layer.
 
 The browser bridge creates a server-side session without exposing the staging
-bearer token. It supports initial HLS playback and best-effort teardown on
-source change. Browser audio-dialog switching and seeking are **not yet wired**
-to the replacement API; the staging API already supports those operations.
+bearer token. It supports initial HLS playback, best-effort teardown on source change,
+and a browser-accessible PUT replacement endpoint for audio changes and seeks.
+The JavaScript client can call that endpoint, but the audio dialog and seek
+controls are **not yet wired** to invoke it.
 Signed URLs whose path does not end in `.mkv` are not automatically detected.
 
 This is experimental and must be tested in Chrome with real signed media before
 considering a production rollout. In particular, the player startup path,
 subtitles, track discovery, and session cleanup need integration validation.
+
+## Browser replacement request
+
+The authenticated browser session bridge supports `PUT
+/api/mkv-browser/session/<id>` with JSON
+`{"audioStreamIndex":3,"startSeconds":120}`. It returns a new session ID and
+HLS playlist URL. The old session is closed before replacement. Chrome's
+initial compatibility playback explicitly uses `hls.js` and clears upstream
+MKV request headers for the same-origin HLS playlist. Browser playback has
+not yet been tested with a real media provider.
