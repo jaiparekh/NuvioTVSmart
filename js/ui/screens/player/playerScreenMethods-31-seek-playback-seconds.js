@@ -1,4 +1,5 @@
 import { syncHtmlSubtitleClearance } from "./subtitleOverlayClearance.js";
+import { replaceMkvBrowserCompatibility, closeMkvBrowserCompatibility } from "../../../core/player/mkvBrowserCompatibility.js";
 /* eslint-disable no-unused-vars */
 import * as internals from "./playerScreenContext.js";
 
@@ -8,6 +9,44 @@ export function createPlayerScreenMethods31() {
   return {
     seekPlaybackSeconds(seconds, { preserveSkipIntroSuppression = false } = {}) {
       if (this.isLivePlayback()) return false;
+      // HLS sessions started at a source offset have a local timeline.
+      // Seek through FFmpeg so requests can jump beyond generated segments.
+      if (this.mkvCompatibilitySession?.id) {
+        const session = this.mkvCompatibilitySession;
+        const absoluteSeconds = Number(seconds);
+        if (!Number.isFinite(absoluteSeconds) || absoluteSeconds < 0 || absoluteSeconds > 86400) return false;
+        if (this.mkvCompatibilitySeekPending) return false;
+        this.mkvCompatibilitySeekPending = true;
+        void (async () => {
+          try {
+            const next = await replaceMkvBrowserCompatibility(session.id, {
+              audioStreamIndex: session.audioStreamIndex,
+              startSeconds: absoluteSeconds
+            });
+            if (!next) return;
+            if (this.mkvCompatibilitySession?.id !== session.id) {
+              void closeMkvBrowserCompatibility(next.id);
+              return;
+            }
+            this.mkvCompatibilitySession = next;
+            this.activePlaybackUrl = new URL(next.playlistUrl, globalThis.location.origin).href;
+            await this.startPlayerControllerPlayback(this.activePlaybackUrl, {
+              ...this.buildPlaybackContext(this.getCurrentStreamCandidate()),
+              forceEngine: "hls.js",
+              requestHeaders: {},
+              mediaSourceType: "application/vnd.apple.mpegurl"
+            }, { sourceCandidate: this.getCurrentStreamCandidate() });
+          } finally {
+            this.mkvCompatibilitySeekPending = false;
+            this.clearSeekLoading?.();
+          }
+        })().catch(() => {
+          this.mkvCompatibilitySeekPending = false;
+          this.clearSeekLoading?.();
+        });
+        return true;
+      }
+
       const currentSeconds = Number(this.getPlaybackCurrentSeconds());
       const targetSeconds = Number(seconds);
       if (Number.isFinite(currentSeconds) && Number.isFinite(targetSeconds) && targetSeconds < currentSeconds - 0.5) {
