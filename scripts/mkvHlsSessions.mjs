@@ -11,6 +11,7 @@ const FFMPEG = process.env.NUVIO_FFMPEG_PATH || "/opt/ffmpeg/bin/ffmpeg";
 const MAX_SESSIONS = 2;
 const SESSION_IDLE_MS = 5 * 60 * 1000;
 const sessions = new Map();
+let pendingSetups = 0;
 const cleanupTimer = setInterval(() => {
   void cleanupIdleHlsSessions().catch(() => {});
 }, 60_000);
@@ -109,9 +110,19 @@ export async function closeAllHlsSessions() {
  * The source is only ever read through a DNS-pinned, loopback gateway.
  */
 export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, selectedAudioStreamIndex = null, startSeconds = 0 }) {
-  if (sessions.size >= MAX_SESSIONS) throw new Error("Transcode capacity reached");
-  const gateway = await createPinnedMkvGateway(sourceUrl, allowedHosts);
+  // Reserve capacity before asynchronous DNS and probing, otherwise concurrent
+  // requests can all pass the sessions.size check and exceed the process limit.
+  if (sessions.size + pendingSetups >= MAX_SESSIONS) throw new Error("Transcode capacity reached");
+  pendingSetups++;
+  let gateway;
+  try {
+    gateway = await createPinnedMkvGateway(sourceUrl, allowedHosts);
+  } catch (error) {
+    pendingSetups--;
+    throw error;
+  }
   let handedOff = false;
+  let reservationReleased = false;
   try {
     const probe = await probeAudioCompatibility(gateway.url);
     if (!String(probe.container).split(",").some((name) => ["matroska", "webm"].includes(name))) {
@@ -119,6 +130,10 @@ export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, sele
     }
     const decision = decideMkvAudioCompatibility(probe, { selectedAudioStreamIndex });
     if (decision.action !== "transcode-audio") return decision;
+    // The reservation covers the entire setup; release it immediately before
+    // creating the actual FFmpeg session (no await between these operations).
+    pendingSetups--;
+    reservationReleased = true;
     const session = await createHlsSession({
       sourceUrl: gateway.url,
       audioStreamIndex: decision.audioStreamIndex,
@@ -128,6 +143,7 @@ export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, sele
     handedOff = true;
     return { ...decision, ...session, playlistUrl: `/api/mkv-hls/${session.id}/index.m3u8`, audioTracks: probe.audio };
   } finally {
+    if (!reservationReleased) pendingSetups--;
     if (!handedOff) await gateway.close();
   }
 }
