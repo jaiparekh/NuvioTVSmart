@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { buildMkvHlsArguments, decideMkvAudioCompatibility } from "./mkvAudioCompatibility.mjs";
 import { probeAudioCompatibility } from "./audioCompatibilityProbe.mjs";
 import { createPinnedMkvGateway } from "./mkvPinnedGateway.mjs";
+import { firstHlsSegmentName } from "./mkvPlaylist.mjs";
 
 const FFMPEG = process.env.NUVIO_FFMPEG_PATH || "/opt/ffmpeg/bin/ffmpeg";
 const MAX_SESSIONS = 2;
@@ -88,8 +89,8 @@ export async function waitForHlsSessionReady(id, { timeoutMs = STARTUP_TIMEOUT_M
     const playlist = await readHlsAsset(id, "index.m3u8");
     if (playlist) {
       const body = playlist.bytes.toString("utf8");
-      const firstSegment = body.match(/(?:^|\n)(index-\d{6}\.ts)(?:\r?\n|$)/);
-      if (firstSegment && await readHlsAsset(id, firstSegment[1])) return;
+      const firstSegment = firstHlsSegmentName(body);
+      if (firstSegment && await readHlsAsset(id, firstSegment)) return;
     }
     if (session.child.exitCode !== null || session.child.signalCode !== null) {
       throw new Error("FFmpeg exited before HLS was ready");
