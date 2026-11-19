@@ -239,6 +239,28 @@ export function createTrackingSettingsMethods() {
       const settings = TraktSettingsStore.get();
       const traktConnected = TraktAuthService.isAuthenticated();
       const simklConnected = SimklAuthService.isAuthenticated();
+      // Browser PKCE restores an authenticated session without the device-code
+      // approval callback that normally starts the statistics lookup.
+      if (traktConnected && !this.traktStatsLoading &&
+          this.traktStatsProfileId !== profileId) {
+        this.traktStatsProfileId = profileId;
+        this.traktStatsLoading = true;
+        Promise.resolve().then(async () => {
+          try {
+            const stats = await TraktAuthService.fetchStats();
+            if (current()) this.traktStats = stats;
+          } catch (error) {
+            console.warn("Trakt statistics lookup failed", error?.message || error);
+            if (current()) this.traktStats = null;
+          } finally {
+            if (current()) {
+              this.traktStatsLoading = false;
+              await this.render();
+            }
+          }
+        });
+      }
+      if (!traktConnected) this.traktStatsProfileId = null;
       const traktWaiting = Boolean(trakt.deviceCode && trakt.expiresAt > Date.now());
       const simklWaiting = Boolean(simkl.userCode && simkl.expiresAt > Date.now());
       const connectedWatchSources = [

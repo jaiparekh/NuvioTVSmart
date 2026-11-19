@@ -174,10 +174,11 @@ export function requestJson(
         headers.Authorization = authorization;
       }
 
-      const response = await fetch(Platform.isBrowser() && path === "/oauth/token" ? "/trakt/oauth/token" : `${apiBaseUrl()}${path}`, {
-        method,
+      const browserApi = Platform.isBrowser() && path !== "/oauth/token";
+      const response = await fetch(browserApi ? "/trakt/api" : Platform.isBrowser() ? "/trakt/oauth/token" : `${apiBaseUrl()}${path}`, {
+        method: browserApi ? "POST" : method,
         headers,
-        body: body == null ? undefined : JSON.stringify(body),
+        body: browserApi ? JSON.stringify({ path, method, body, authorization }) : body == null ? undefined : JSON.stringify(body),
         ...(requestSignal ? { signal: requestSignal } : {})
       });
       throwIfAborted(requestSignal);
