@@ -199,9 +199,9 @@ const server = http.createServer(async (request, response) => {
           !["authorization_code", "refresh_token"].includes(body.grant_type)) {
         response.writeHead(400); response.end(); return;
       }
-      const upstream = await fetch("https://auth.trakt.tv/oauth/token", {
+      const upstream = await fetch("https://api.trakt.tv/oauth/token", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "nuvio-catalog-sync/1.0 (Trakt PKCE integration)" },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(12000)
       });
