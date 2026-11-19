@@ -1,0 +1,66 @@
+/**
+ * Browser-focused MKV audio compatibility policy.
+ * Decisions use probed codecs, not filename guesses or browser audioTracks.
+ * The caller must separately establish that the source is a reachable MKV and
+ * that the browser can decode the video codec.
+ */
+const DIRECT_AUDIO = new Set(["aac", "mp3"]);
+const CONVERT_AUDIO = new Set(["eac3", "ac3", "dts", "truehd"]);
+const COPY_VIDEO = new Set(["h264"]);
+
+export function normalizeAudioCodec(codec) {
+  const value = String(codec || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (value === "ec3" || value === "eac3") return "eac3";
+  if (value.startsWith("dts")) return "dts";
+  if (value.startsWith("truehd") || value === "mlp") return "truehd";
+  if (value === "ac3") return "ac3";
+  if (value.startsWith("aac")) return "aac";
+  if (value === "mp3") return "mp3";
+  return value;
+}
+
+export function decideMkvAudioCompatibility(probe, {
+  selectedAudioStreamIndex = null,
+  videoSupported = true
+} = {}) {
+  const video = (probe?.video || [])[0];
+  const audio = probe?.audio || [];
+  if (!video || !audio.length) return { action: "unchanged", reason: "missing-stream-metadata" };
+  if (!COPY_VIDEO.has(String(video.codec_name || video.codec || "").toLowerCase()) || !videoSupported) {
+    return { action: "unchanged", reason: "video-compatibility-unconfirmed" };
+  }
+  const selected = selectedAudioStreamIndex == null
+    ? audio[0]
+    : audio.find((track) => track.index === selectedAudioStreamIndex);
+  if (!selected) return { action: "unchanged", reason: "audio-stream-not-found" };
+  const codec = normalizeAudioCodec(selected.codec || selected.codec_name);
+  if (DIRECT_AUDIO.has(codec)) return { action: "direct", reason: "compatible-audio", audioStreamIndex: selected.index };
+  if (CONVERT_AUDIO.has(codec)) {
+    return { action: "transcode-audio", reason: "unsupported-audio", audioStreamIndex: selected.index, outputCodec: "aac", videoMode: "copy" };
+  }
+  return { action: "unchanged", reason: "unknown-audio-codec" };
+}
+
+/** Arguments only: never pass a shell command or untrusted argument string. */
+export function buildMkvHlsArguments({
+  sourceUrl, audioStreamIndex, outputPlaylist, startSeconds = 0,
+  transcodeAudio = true
+}) {
+  if (!Number.isSafeInteger(audioStreamIndex) || audioStreamIndex < 0) throw new Error("Invalid audio stream index");
+  if (!Number.isFinite(startSeconds) || startSeconds < 0) throw new Error("Invalid start time");
+  if (typeof sourceUrl !== "string" || !/^https?:\/\//i.test(sourceUrl)) throw new Error("Invalid source URL");
+  if (typeof outputPlaylist !== "string" || !outputPlaylist) throw new Error("Missing output playlist");
+  return [
+    "-hide_banner", "-nostdin", "-loglevel", "warning",
+    ...(startSeconds > 0 ? ["-ss", String(startSeconds)] : []),
+    "-i", sourceUrl,
+    "-map", "0:v:0", "-map", `0:${audioStreamIndex}`,
+    "-sn", "-dn", "-c:v", "copy",
+    "-c:a", transcodeAudio ? "aac" : "copy",
+    ...(transcodeAudio ? ["-b:a", "192k"] : []),
+    "-f", "hls", "-hls_time", "4",
+    "-hls_list_size", "8", "-hls_flags", "delete_segments+omit_endlist",
+    "-hls_segment_filename", outputPlaylist.replace(/\.m3u8$/i, "") + "-%06d.ts",
+    outputPlaylist
+  ];
+}
