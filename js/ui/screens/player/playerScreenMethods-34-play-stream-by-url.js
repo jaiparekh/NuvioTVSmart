@@ -302,7 +302,7 @@ export function createPlayerScreenMethods34() {
       const playbackContext = {
         ...this.buildPlaybackContext(sourceCandidate),
         forceEngine: this.mkvCompatibilitySession ? "hls.js" : forceEngine,
-        ...(this.mkvCompatibilitySession ? { requestHeaders: {}, sourceType: "application/vnd.apple.mpegurl" } : {}),
+        ...(this.mkvCompatibilitySession ? { requestHeaders: {}, mediaSourceType: "application/vnd.apple.mpegurl" } : {}),
         preserveTrackSelections: preserveWebOsTrackSelections,
         forceLocalProxy: this.tizenLocalProxyRequiredUrl === normalizedStreamUrl
       };
