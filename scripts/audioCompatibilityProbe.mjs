@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 
-const FFPROBE = process.env.NUVIO_FFPROBE_PATH || "/opt/ffmpeg/bin/ffprobe";
+const FFPROBE = process.env.NUVIO_FFPROBE_PATH || "/usr/bin/ffprobe";
 const TIMEOUT_MS = 12000;
 const MAX_OUTPUT_BYTES = 256 * 1024;
 
