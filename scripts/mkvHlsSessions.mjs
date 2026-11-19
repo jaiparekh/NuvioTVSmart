@@ -3,7 +3,9 @@ import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { buildMkvHlsArguments } from "./mkvAudioCompatibility.mjs";
+import { buildMkvHlsArguments, decideMkvAudioCompatibility } from "./mkvAudioCompatibility.mjs";
+import { probeAudioCompatibility } from "./audioCompatibilityProbe.mjs";
+import { createPinnedMkvGateway } from "./mkvPinnedGateway.mjs";
 
 const FFMPEG = process.env.NUVIO_FFMPEG_PATH || "/opt/ffmpeg/bin/ffmpeg";
 const MAX_SESSIONS = 2;
@@ -19,7 +21,7 @@ cleanupTimer.unref?.();
  * endpoint and performs NO source URL authorization: the caller must authorize
  * the source and enforce SSRF protection before invoking createHlsSession.
  */
-export async function createHlsSession({ sourceUrl, audioStreamIndex, startSeconds = 0 }) {
+export async function createHlsSession({ sourceUrl, audioStreamIndex, startSeconds = 0, gateway = null }) {
   if (sessions.size >= MAX_SESSIONS) throw new Error("Transcode capacity reached");
   const id = randomUUID();
   const directory = await mkdtemp(path.join(tmpdir(), "nuvio-mkv-"));
@@ -31,6 +33,7 @@ export async function createHlsSession({ sourceUrl, audioStreamIndex, startSecon
     });
   } catch (error) {
     await rm(directory, { recursive: true, force: true });
+    await gateway?.close();
     throw error;
   }
   let child;
@@ -40,7 +43,7 @@ export async function createHlsSession({ sourceUrl, audioStreamIndex, startSecon
     await rm(directory, { recursive: true, force: true });
     throw error;
   }
-  const session = { id, directory, child, lastAccess: Date.now(), closed: false, error: null, bytesServed: 0 };
+  const session = { id, directory, child, gateway, lastAccess: Date.now(), closed: false, error: null };
   sessions.set(id, session);
   let stderrBytes = 0;
   child.stderr?.on("data", (chunk) => {
@@ -88,6 +91,7 @@ export async function closeHlsSession(id) {
     ]);
   }
   await rm(session.directory, { recursive: true, force: true });
+  await session.gateway?.close();
 }
 
 export async function cleanupIdleHlsSessions(now = Date.now()) {
@@ -98,4 +102,33 @@ export async function cleanupIdleHlsSessions(now = Date.now()) {
 
 export async function closeAllHlsSessions() {
   await Promise.all([...sessions.keys()].map(closeHlsSession));
+}
+
+/**
+ * Internal, explicitly allowlisted session setup. No public HTTP endpoint is
+ * installed: caller authentication and rate limits must be enforced first.
+ * The source is only ever read through a DNS-pinned, loopback gateway.
+ */
+export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, selectedAudioStreamIndex = null, startSeconds = 0 }) {
+  if (sessions.size >= MAX_SESSIONS) throw new Error("Transcode capacity reached");
+  const gateway = await createPinnedMkvGateway(sourceUrl, allowedHosts);
+  let handedOff = false;
+  try {
+    const probe = await probeAudioCompatibility(gateway.url);
+    if (!String(probe.container).split(",").some((name) => ["matroska", "webm"].includes(name))) {
+      return { action: "unchanged", reason: "not-mkv" };
+    }
+    const decision = decideMkvAudioCompatibility(probe, { selectedAudioStreamIndex });
+    if (decision.action !== "transcode-audio") return decision;
+    const session = await createHlsSession({
+      sourceUrl: gateway.url,
+      audioStreamIndex: decision.audioStreamIndex,
+      startSeconds,
+      gateway
+    });
+    handedOff = true;
+    return { ...decision, ...session, playlistUrl: `/api/mkv-hls/${session.id}/index.m3u8`, audioTracks: probe.audio };
+  } finally {
+    if (!handedOff) await gateway.close();
+  }
 }
