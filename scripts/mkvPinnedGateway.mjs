@@ -78,6 +78,9 @@ export async function createPinnedMkvGateway(sourceUrl, allowedHosts) {
   const localUrl = "http://127.0.0.1:" + server.address().port + "/" + token;
   return {
     url: localUrl,
-    close: () => new Promise((resolve) => server.close(() => resolve()))
+    close: () => new Promise((resolve) => {
+      server.close(() => resolve());
+      server.closeAllConnections();
+    })
   };
 }
