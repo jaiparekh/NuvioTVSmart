@@ -1,6 +1,7 @@
 /* eslint-disable no-unused-vars */
 import * as internals from "./playerScreenContext.js";
 import { LastPlaybackStore } from "../../../data/local/lastPlaybackStore.js";
+import { shouldTryMkvBrowserCompatibility, requestMkvBrowserCompatibility } from "../../../core/player/mkvBrowserCompatibility.js";
 
 export function createPlayerScreenMethods34() {
   const {
@@ -269,6 +270,26 @@ export function createPlayerScreenMethods34() {
       }
       this.lastEmbeddedTrackRetryAt = 0;
       this.lastTrackWarmupAt = Date.now();
+      // Only Chrome on ordinary web browsers negotiates audio compatibility.
+      // Unsupported/unconfigured servers fall through to existing playback.
+      // Never expose the staging API bearer token in client code.
+      if (!nextEngineFsState && shouldTryMkvBrowserCompatibility({
+        url: normalizedStreamUrl,
+        userAgent: globalThis.navigator?.userAgent,
+        isTizen: Environment.isTizen?.(),
+        isWebOS: Environment.isWebOS()
+      })) {
+        try {
+          const compatible = await requestMkvBrowserCompatibility(normalizedStreamUrl);
+          if (!this.isActiveMountToken(mountToken) || this.activePlaybackUrl !== streamUrl) return;
+          if (compatible) {
+            this.mkvCompatibilitySession = compatible;
+            this.activePlaybackUrl = compatible.playlistUrl;
+          }
+        } catch (_) {
+          // Preserve the original playback path if the optional bridge fails.
+        }
+      }
       const playbackContext = {
         ...this.buildPlaybackContext(sourceCandidate),
         forceEngine,
