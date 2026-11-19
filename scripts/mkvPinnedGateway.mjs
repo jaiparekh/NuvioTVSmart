@@ -3,6 +3,12 @@ import https from "node:https";
 import { randomUUID } from "node:crypto";
 import { preflightMkvSource } from "./mkvSourcePreflight.mjs";
 
+// Opt-in, status-only diagnostics. Never log upstream URLs, headers, or errors.
+const diagnosticEnabled = process.env.NUVIO_MKV_GATEWAY_DIAGNOSTICS === "1";
+function diagnostic(category, status = null) {
+  if (diagnosticEnabled) console.warn("[mkv-gateway]", category, status == null ? "" : `status=${status}`);
+}
+
 /**
  * Loopback-only, DNS-pinned media gateway for FFmpeg/ffprobe.
  * Every upstream request is revalidated and pinned to its checked address.
@@ -44,10 +50,12 @@ export async function createPinnedMkvGateway(sourceUrl, allowedHosts) {
       agent: false
     }, (remote) => {
       if (remote.statusCode >= 300 && remote.statusCode < 400) {
+        diagnostic("upstream-redirect", remote.statusCode);
         remote.resume();
         res.writeHead(502); res.end(); return;
       }
       if (![200, 206, 416].includes(remote.statusCode)) {
+        diagnostic("upstream-http-rejected", remote.statusCode);
         remote.resume();
         res.writeHead(502); res.end(); return;
       }
@@ -58,8 +66,16 @@ export async function createPinnedMkvGateway(sourceUrl, allowedHosts) {
       res.writeHead(remote.statusCode, forwarded);
       remote.pipe(res);
     });
-    upstream.on("timeout", () => upstream.destroy(new Error("Upstream timeout")));
-    upstream.on("error", () => {
+    upstream.on("timeout", () => {
+      diagnostic("upstream-timeout");
+      upstream.destroy(new Error("Upstream timeout"));
+    });
+    upstream.on("error", (error) => {
+      // Only emit a fixed category; raw TLS/network errors may contain source URLs.
+      const code = error?.code;
+      diagnostic(code === "CERT_HAS_EXPIRED" || code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
+        code === "DEPTH_ZERO_SELF_SIGNED_CERT" || code === "ERR_TLS_CERT_ALTNAME_INVALID"
+        ? "tls-validation-failed" : "upstream-network-error");
       if (!res.headersSent) res.writeHead(502);
       res.end();
     });
