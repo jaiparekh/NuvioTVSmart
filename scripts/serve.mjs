@@ -183,6 +183,35 @@ async function proxyLocalMediaRequest(request, response, pathname) {
 const server = http.createServer(async (request, response) => {
   try {
     const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    if (requestUrl.pathname === "/trakt/oauth/token" && request.method === "POST") {
+      const chunks = [];
+      for await (const chunk of request) {
+        chunks.push(chunk);
+        if (chunks.reduce((n, b) => n + b.length, 0) > 16384) {
+          response.writeHead(413); response.end(); return;
+        }
+      }
+      let body;
+      try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+      catch { response.writeHead(400); response.end(); return; }
+      const { env } = await readEnvProperties({ rootDir });
+      if (!env.TRAKT_CLIENT_ID || body.client_id !== env.TRAKT_CLIENT_ID ||
+          !["authorization_code", "refresh_token"].includes(body.grant_type)) {
+        response.writeHead(400); response.end(); return;
+      }
+      const upstream = await fetch("https://api.trakt.tv/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "trakt-api-version": "2", "trakt-api-key": env.TRAKT_CLIENT_ID },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(12000)
+      });
+      response.writeHead(upstream.status, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store"
+      });
+      response.end(await upstream.text());
+      return;
+    }
     if (requestUrl.pathname === "/trakt/callback") {
       const redirect = new URL("/", `http://${request.headers.host || "localhost"}`);
       for (const key of ["code", "state", "error", "error_description"]) {
