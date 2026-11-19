@@ -150,8 +150,8 @@ export function createTraktAuthServiceMethods01() {
         body: {
           refresh_token: state.refreshToken,
           client_id: TRAKT_CLIENT_ID,
-          client_secret: TRAKT_CLIENT_SECRET,
-          redirect_uri: TRAKT_REDIRECT_URI || "urn:ietf:wg:oauth:2.0:oob",
+          ...(TRAKT_CLIENT_SECRET ? { client_secret: TRAKT_CLIENT_SECRET } : {}),
+          redirect_uri: globalThis.location?.origin && !TRAKT_CLIENT_SECRET ? `${globalThis.location.origin}/trakt/callback` : (TRAKT_REDIRECT_URI || "urn:ietf:wg:oauth:2.0:oob"),
           grant_type: "refresh_token"
         }
       });

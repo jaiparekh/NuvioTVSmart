@@ -1,3 +1,5 @@
+import { Platform } from "../../platform/index.js";
+import { TraktBrowserAuth } from "./traktBrowserAuth.js";
 import { ProfileManager } from "../../core/profile/profileManager.js";
 import {
   TRAKT_API_URL,
@@ -57,7 +59,7 @@ function apiBaseUrl() {
 }
 
 function hasRequiredCredentials() {
-  return Boolean(TRAKT_CLIENT_ID && TRAKT_CLIENT_SECRET);
+  return Boolean(TRAKT_CLIENT_ID && (Platform.isBrowser() || TRAKT_CLIENT_SECRET));
 }
 
 function normalizeAuthErrorMessage(payload, fallback) {
@@ -172,7 +174,7 @@ export function requestJson(
         headers.Authorization = authorization;
       }
 
-      const response = await fetch(`${apiBaseUrl()}${path}`, {
+      const response = await fetch(Platform.isBrowser() && path === "/oauth/token" ? "/trakt/oauth/token" : `${apiBaseUrl()}${path}`, {
         method,
         headers,
         body: body == null ? undefined : JSON.stringify(body),
@@ -217,6 +219,7 @@ async function fetchUserSettings(profileId = ProfileManager.getActiveProfileId()
 
 export const TraktAuthService = {
   hasRequiredCredentials,
+  startBrowserAuth: TraktBrowserAuth.start,
   ...createTraktAuthServiceMethods01(),
   fetchUserSettings
 };
@@ -429,4 +432,13 @@ function normalizeWatchedMovieItem(entry) {
     watchedAt: Number.isFinite(watchedAt) ? watchedAt : 0,
     lastWatchedAt
   };
+}
+
+// Complete the redirect once the normal application configuration has loaded.
+if (Platform.isBrowser() && new URLSearchParams(globalThis.location?.search || "").has("trakt_code")) {
+  void TraktBrowserAuth.complete().catch((error) => {
+    console.error("Trakt authorization callback failed:", error);
+    globalThis.sessionStorage?.setItem("nuvioTraktAuthError", String(error?.message || error));
+    globalThis.history?.replaceState(null, "", "/");
+  });
 }

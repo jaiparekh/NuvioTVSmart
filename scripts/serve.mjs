@@ -1,7 +1,7 @@
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { buildRuntimeEnvScript, readEnvProperties } from "./envProperties.mjs";
@@ -54,33 +54,25 @@ function getLanUrls() {
   return Array.from(new Set(urls)).sort();
 }
 
-function resolveRequestPath(urlPathname) {
-  let pathname = decodeURIComponent(String(urlPathname || "/"));
-  if (pathname === "/") {
-    pathname = "/index.html";
-  }
-  const normalized = path.normalize(pathname).replace(/^(\.\.[/\\])+/, "");
-  return path.join(rootDir, normalized);
-}
-
-function resolveDistPathForRootFile(rootFilePath) {
-  const relativePath = path.relative(rootDir, rootFilePath);
-  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-    return "";
-  }
-  return path.join(distDir, relativePath);
-}
-
+// Only built, public assets may be served. Never fall back to the repository root.
 async function resolveRequestFile(pathname) {
-  const rootPath = resolveRequestPath(pathname);
-  const rootStat = await stat(rootPath).catch(() => null);
-  const distPath = resolveDistPathForRootFile(rootPath);
-  const distStat = distPath ? await stat(distPath).catch(() => null) : null;
-  if (distStat?.isFile()) {
-    return { filePath: distPath, fileStat: distStat };
+  let decoded;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return null;
   }
-
-  return { filePath: rootPath, fileStat: rootStat };
+  if (decoded.includes("\\") || decoded.includes("\0")) return null;
+  const segments = decoded.split("/");
+  if (segments.some((segment) => segment === ".." || segment.startsWith("."))) return null;
+  const relative = decoded === "/" ? "index.html" : decoded.replace(/^\/+/, "");
+  const candidate = path.resolve(distDir, relative);
+  if (candidate !== distDir && !candidate.startsWith(distDir + path.sep)) return null;
+  const resolved = await realpath(candidate).catch(() => null);
+  if (!resolved || !resolved.startsWith(distDir + path.sep)) return null;
+  const fileStat = await stat(resolved).catch(() => null);
+  if (!fileStat?.isFile()) return null;
+  return { filePath: resolved, fileStat };
 }
 
 function requestLocalMediaPath(
@@ -191,6 +183,46 @@ async function proxyLocalMediaRequest(request, response, pathname) {
 const server = http.createServer(async (request, response) => {
   try {
     const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    if (requestUrl.pathname === "/trakt/oauth/token" && request.method === "POST") {
+      const chunks = [];
+      for await (const chunk of request) {
+        chunks.push(chunk);
+        if (chunks.reduce((n, b) => n + b.length, 0) > 16384) {
+          response.writeHead(413); response.end(); return;
+        }
+      }
+      let body;
+      try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+      catch { response.writeHead(400); response.end(); return; }
+      const { env } = await readEnvProperties({ rootDir });
+      if (!env.TRAKT_CLIENT_ID || body.client_id !== env.TRAKT_CLIENT_ID ||
+          !["authorization_code", "refresh_token"].includes(body.grant_type)) {
+        response.writeHead(400); response.end(); return;
+      }
+      const upstream = await fetch("https://api.trakt.tv/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "nuvio-catalog-sync/1.0 (Trakt PKCE integration)" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(12000)
+      });
+      const upstreamContentType = upstream.headers.get("content-type") || "missing";
+      const upstreamBody = await upstream.text();
+      response.writeHead(upstream.status, {
+        "Content-Type": upstreamContentType,
+        "Cache-Control": "no-store"
+      });
+      response.end(upstreamBody);
+      return;
+    }
+    if (requestUrl.pathname === "/trakt/callback") {
+      const redirect = new URL("/", `http://${request.headers.host || "localhost"}`);
+      for (const key of ["code", "state", "error", "error_description"]) {
+        if (requestUrl.searchParams.has(key)) redirect.searchParams.set("trakt_" + key, requestUrl.searchParams.get(key));
+      }
+      response.writeHead(302, { Location: redirect.pathname + redirect.search, "Cache-Control": "no-store" });
+      response.end();
+      return;
+    }
     if (requestUrl.pathname === "/nuvio.env.js") {
       const { env } = await readEnvProperties({ rootDir });
       response.writeHead(200, {
@@ -210,23 +242,18 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
-    let { filePath, fileStat } = await resolveRequestFile(requestUrl.pathname);
+    const resolvedFile = await resolveRequestFile(requestUrl.pathname);
 
-    if (fileStat?.isDirectory()) {
-      filePath = path.join(filePath, "index.html");
-      fileStat = await stat(filePath).catch(() => null);
-    }
-
-    if (!fileStat?.isFile()) {
+    if (!resolvedFile) {
       response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       response.end("Not found");
       return;
     }
 
-    const fileContents = await readFile(filePath);
+    const fileContents = await readFile(resolvedFile.filePath);
     response.writeHead(200, {
       "Cache-Control": "no-store",
-      "Content-Type": getContentType(filePath)
+      "Content-Type": getContentType(resolvedFile.filePath)
     });
     response.end(fileContents);
   } catch (error) {
