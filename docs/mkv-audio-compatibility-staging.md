@@ -1,0 +1,54 @@
+# MKV audio compatibility — staging API
+
+This is an experimental backend interface on `feature/mkv-audio-compatibility`.
+It is **not** a production-ready browser playback feature. Do not merge or
+expose it publicly without an authentication and security review.
+
+## Server configuration
+
+Set the following **server-only** environment variables (never put the token
+in `local.properties` if that file is served to clients):
+
+```sh
+NUVIO_MKV_API_TOKEN='<random-secret-at-least-32-characters>'
+NUVIO_MKV_ALLOWED_HOSTS='media.example.com,cdn.example.com'
+```
+
+Only HTTPS upstream URLs are supported. Exact hostname matches are required.
+Redirects, local addresses and mixed public/private DNS answers are rejected.
+The upstream must permit Range requests. The server uses absolute FFmpeg and
+FFprobe paths; **do not override Docker Compose PATH**.
+
+## Staging test
+
+Run against a **private** development server only:
+
+```sh
+curl -fsS -X POST http://127.0.0.1:4173/api/mkv-hls/session \
+  -H "Authorization: Bearer $NUVIO_MKV_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"sourceUrl":"https://media.example.com/movie.mkv"}'
+```
+
+For an E-AC3 MKV with H.264 video, a successful response contains
+`action: "transcode-audio"`, `id`, and `playlistUrl`.
+For compatible audio, the response may be `action: "direct"` without a session.
+The returned playlist is at `/api/mkv-hls/<id>/index.m3u8`.
+
+Stop a session:
+
+```sh
+curl -X DELETE "http://127.0.0.1:4173/api/mkv-hls/session/<id>" \
+  -H "Authorization: Bearer $NUVIO_MKV_API_TOKEN"
+```
+
+## Known gaps
+
+- The browser player does not call this API yet; do not ship the bearer token
+  to the frontend.
+- Audio-track selection, seeking and session ownership are not integrated.
+- Generated playlist/segment URLs are capability-scoped, not per-user authenticated.
+- The server currently reports media startup errors as generic 422 responses.
+- Range behavior, HLS playback, FFmpeg process cleanup and security boundaries
+  require live tests with real MKV media before production use.
+- Upstream authorization headers and redirected media URLs are not supported.
