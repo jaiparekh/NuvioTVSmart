@@ -2,11 +2,11 @@
  * Browser-focused MKV audio compatibility policy.
  * Decisions use probed codecs, not filename guesses or browser audioTracks.
  * The caller must separately establish that the source is a reachable MKV and
- * that the browser can decode the video codec.
+ * that the browser can decode the video codec. HEVC passthrough does not imply browser support.
  */
 const DIRECT_AUDIO = new Set(["aac", "mp3"]);
 const CONVERT_AUDIO = new Set(["eac3", "ac3", "dts", "truehd"]);
-const COPY_VIDEO = new Set(["h264"]);
+const COPY_VIDEO = new Set(["h264", "hevc"]);
 
 export function normalizeAudioCodec(codec) {
   const value = String(codec || "").toLowerCase().replace(/[^a-z0-9]/g, "");
