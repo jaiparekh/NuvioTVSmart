@@ -281,6 +281,7 @@ export function createPlayerScreenMethods34() {
       // Never expose the staging API bearer token in client code.
       if (!nextEngineFsState && shouldTryMkvBrowserCompatibility({
         url: normalizedStreamUrl,
+        likelyMkv: this.isCurrentSourceLikelyMkv(normalizedStreamUrl, sourceCandidate),
         userAgent: globalThis.navigator?.userAgent,
         isTizen: Environment.isTizen?.(),
         isWebOS: Environment.isWebOS()
