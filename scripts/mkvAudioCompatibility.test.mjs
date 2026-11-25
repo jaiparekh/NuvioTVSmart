@@ -38,9 +38,16 @@ test("preserves actual container stream index for alternate audio", () => {
   ]);
 });
 
+test("copies HEVC while converting E-AC3 to AAC", () => {
+  const result = decideMkvAudioCompatibility({ ...probe, video: [{ codec_name: "hevc" }] });
+  assert.equal(result.action, "transcode-audio");
+  assert.equal(result.videoMode, "copy");
+  assert.equal(result.outputCodec, "aac");
+});
+
 test("does not silently transcode unknown video codecs", () => {
   assert.equal(decideMkvAudioCompatibility({
-    ...probe, video: [{ codec_name: "hevc" }]
+    ...probe, video: [{ codec_name: "unknown" }]
   }).action, "unchanged");
 });
 
