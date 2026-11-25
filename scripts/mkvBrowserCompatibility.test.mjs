@@ -61,3 +61,12 @@ test("browser cleanup uses DELETE on a valid session id", async () => {
     return { ok: true };
   }}), true);
 });
+
+test("Chrome negotiates opaque HTTPS URLs and MKV source hints", () => {
+  const eligible = (url, likelyMkv = false) => shouldTryMkvBrowserCompatibility({ url, userAgent: chrome, likelyMkv });
+  assert.equal(eligible("https://media.example.com/stream/123?token=abc"), true);
+  assert.equal(eligible("https://media.example.com/stream.php", true), true);
+  assert.equal(eligible("https://media.example.com/live.m3u8", true), false);
+  assert.equal(eligible("https://media.example.com/video.mp4", true), false);
+  assert.equal(eligible("http://media.example.com/movie.mkv"), false);
+});
