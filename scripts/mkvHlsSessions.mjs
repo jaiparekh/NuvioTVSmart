@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, readFile, stat, readdir, unlink } from "node:fs/promises";
+import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -25,7 +25,7 @@ cleanupTimer.unref?.();
  * endpoint and performs NO source URL authorization: the caller must authorize
  * the source and enforce SSRF protection before invoking createHlsSession.
  */
-export async function createHlsSession({ sourceUrl, audioStreamIndex, startSeconds = 0, gateway = null, reserved = false, transcodeAudio = true, channels = 2, videoCodec = "h264" }) {
+export async function createHlsSession({ sourceUrl, audioStreamIndex, startSeconds = 0, gateway = null, reserved = false, transcodeAudio = true }) {
   if (sessions.size + pendingSetups - (reserved ? 1 : 0) >= MAX_SESSIONS) throw new Error("Transcode capacity reached");
   const id = randomUUID();
   const directory = await mkdtemp(path.join(tmpdir(), "nuvio-mkv-"));
@@ -33,7 +33,7 @@ export async function createHlsSession({ sourceUrl, audioStreamIndex, startSecon
   let args;
   try {
     args = buildMkvHlsArguments({
-      sourceUrl, audioStreamIndex, outputPlaylist: playlist, startSeconds, transcodeAudio, channels, videoCodec
+      sourceUrl, audioStreamIndex, outputPlaylist: playlist, startSeconds, transcodeAudio
     });
   } catch (error) {
     await rm(directory, { recursive: true, force: true });
@@ -46,9 +46,7 @@ export async function createHlsSession({ sourceUrl, audioStreamIndex, startSecon
     await rm(directory, { recursive: true, force: true });
     throw error;
   }
-  const session = { id, directory, child, gateway, lastAccess: Date.now(), closed: false, error: null, served: new Set(), contiguous: -1, suspended: false, busy: false };
-  session.timer = setInterval(() => { void maintain(session).catch(() => { if (!session.closed) { session.error = "storage-controller-failed"; child.kill("SIGKILL"); } }); }, 250);
-  session.timer.unref?.();
+  const session = { id, directory, child, gateway, lastAccess: Date.now(), closed: false, error: null };
   sessions.set(id, session);
   let stderrBytes = 0;
   child.stderr?.on("data", (chunk) => {
@@ -63,75 +61,21 @@ export async function createHlsSession({ sourceUrl, audioStreamIndex, startSecon
   return { id };
 }
 
-async function maintain(s) {
-  if (s.closed || s.busy || s.error) return;
-  s.busy = true;
-  try {
-    const names = await readdir(s.directory);
-    let bytes = 0, latest = -1;
-    for (const name of names) {
-      const match = /^index-(\d{6})\.m4s$/.exec(name);
-      const target = path.join(s.directory, name);
-      if (match) {
-        const n = Number(match[1]);
-        latest = Math.max(latest, n);
-        if (n < s.contiguous - 11) { await unlink(target).catch(() => {}); continue; }
-      }
-      bytes += (await stat(target).catch(() => null))?.size || 0;
-    }
-    if (s.closed) return;
-    if (bytes >= 256 * 1024 * 1024) {
-      s.error = "storage-limit"; s.child.kill("SIGKILL"); return;
-    }
-    if (s.child.exitCode !== null || s.child.signalCode !== null) return;
-    const lead = latest - s.contiguous;
-    if (!s.suspended && lead >= 3) { s.suspended = s.child.kill("SIGSTOP"); }
-    else if (s.suspended && lead <= 1) { if (s.child.kill("SIGCONT")) s.suspended = false; }
-  } finally { s.busy = false; }
-}
-
-function rollingPlaylist(raw, contiguous) {
-  const lines = raw.trim().split(/\r?\n/);
-  const cutoff = Math.max(0, contiguous - 9);
-  const output = [];
-  let first = null;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.startsWith("#EXTINF:")) {
-      const name = lines[++i];
-      const match = /^index-(\d{6})\.m4s$/.exec(name || "");
-      if (!match || Number(match[1]) < cutoff) continue;
-      if (first === null) first = Number(match[1]);
-      output.push(line, name);
-    } else if (!line.startsWith("#EXT-X-MEDIA-SEQUENCE:") && !line.startsWith("#EXT-X-PLAYLIST-TYPE:")) output.push(line);
-  }
-  output.splice(1, 0, "#EXT-X-MEDIA-SEQUENCE:" + (first ?? cutoff));
-  return output.join("\n") + "\n";
-}
-
-export async function readHlsAsset(id, filename, { count = true } = {}) {
+export async function readHlsAsset(id, filename) {
   const session = sessions.get(id);
   if (!session || session.closed) return null;
   if (session.error) throw new Error(session.error);
-  if (!/^(index\.m3u8|init\.mp4|index-\d{6}\.m4s)$/.test(filename)) return null;
+  if (!/^(index\.m3u8|index-\d{6}\.ts)$/.test(filename)) return null;
   session.lastAccess = Date.now();
   const target = path.join(session.directory, filename);
   const info = await stat(target).catch(() => null);
   if (!info?.isFile() || info.size > 16 * 1024 * 1024) return null;
-  let bytes = await readFile(target).catch(() => null);
-  if (!bytes) return null;
+  const bytes = await readFile(target);
   // FFmpeg may still be writing this segment. The playlist can reference it
   // before the filesystem write is complete; clients should retry 404s.
   if (bytes.length !== info.size) return null;
-  if (filename.endsWith(".m3u8")) bytes = Buffer.from(rollingPlaylist(bytes.toString("utf8"), session.contiguous));
-  const match = /^index-(\d{6})\.m4s$/.exec(filename);
-  if (count && match) {
-    const n = Number(match[1]);
-    if (n > session.contiguous) session.served.add(n);
-    while (session.served.delete(session.contiguous + 1)) session.contiguous++;
-  }
   return {
-    contentType: filename.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp4",
+    contentType: filename.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp2t",
     bytes
   };
 }
@@ -147,7 +91,7 @@ export async function waitForHlsSessionReady(id, { timeoutMs = STARTUP_TIMEOUT_M
     if (playlist) {
       const body = playlist.bytes.toString("utf8");
       const firstSegment = firstHlsSegmentName(body);
-      if (firstSegment && await readHlsAsset(id, firstSegment, { count: false }) && await readHlsAsset(id, "init.mp4", { count: false })) return;
+      if (firstSegment && await readHlsAsset(id, firstSegment)) return;
     }
     if (session.child.exitCode !== null || session.child.signalCode !== null) {
       throw new Error("FFmpeg exited before HLS was ready");
@@ -163,8 +107,7 @@ export async function closeHlsSession(id) {
   sessions.delete(id);
   sourceContexts.delete(id);
   session.closed = true;
-  clearInterval(session.timer);
-  if (session.child.exitCode === null && session.child.signalCode === null) session.child.kill("SIGKILL");
+  if (session.child.exitCode === null && !session.child.killed) session.child.kill("SIGKILL");
   // A killed FFmpeg process may still be writing segments. Wait for exit before deletion.
   if (session.child.exitCode === null && session.child.signalCode === null) {
     await Promise.race([
@@ -218,9 +161,7 @@ export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, sele
       startSeconds,
       gateway,
       reserved: true,
-      transcodeAudio: decision.action === "transcode-audio",
-      channels: probe.audio.find(t => t.index === decision.audioStreamIndex)?.channels || 2,
-      videoCodec: probe.video[0]?.codec_name
+      transcodeAudio: decision.action === "transcode-audio"
     });
     handedOff = true;
     try {
@@ -233,7 +174,7 @@ export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, sele
       sourceUrl, allowedHosts: [],
       audioStreamIndex: decision.audioStreamIndex
     });
-    return { ...decision, action: "hls-session", transcodeAudio: decision.action === "transcode-audio", ...session, startSeconds, playlistUrl: `/api/mkv-hls/${session.id}/index.m3u8`, audioTracks: probe.audio, duration: probe.duration };
+    return { ...decision, action: "hls-session", transcodeAudio: decision.action === "transcode-audio", ...session, startSeconds, playlistUrl: `/api/mkv-hls/${session.id}/index.m3u8`, audioTracks: probe.audio };
   } finally {
     pendingSetups--;
     if (!handedOff) await gateway.close();
