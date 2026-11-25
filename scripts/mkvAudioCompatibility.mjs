@@ -44,7 +44,7 @@ export function decideMkvAudioCompatibility(probe, {
 /** Arguments only: never pass a shell command or untrusted argument string. */
 export function buildMkvHlsArguments({
   sourceUrl, audioStreamIndex, outputPlaylist, startSeconds = 0,
-  transcodeAudio = true
+  transcodeAudio = true, channels = 2, videoCodec = "h264"
 }) {
   if (!Number.isSafeInteger(audioStreamIndex) || audioStreamIndex < 0) throw new Error("Invalid audio stream index");
   if (!Number.isFinite(startSeconds) || startSeconds < 0) throw new Error("Invalid start time");
@@ -53,16 +53,17 @@ export function buildMkvHlsArguments({
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error("Invalid source URL");
   if (typeof outputPlaylist !== "string" || !outputPlaylist) throw new Error("Missing output playlist");
   return [
-    "-hide_banner", "-nostdin", "-loglevel", "warning",
+    "-hide_banner", "-nostdin", "-loglevel", "warning", "-threads", "2", "-readrate", "1.5", "-readrate_initial_burst", "10",
     ...(startSeconds > 0 ? ["-ss", String(startSeconds)] : []),
     "-i", sourceUrl,
     "-map", "0:v:0", "-map", `0:${audioStreamIndex}`,
     "-sn", "-dn", "-c:v", "copy",
+    ...(videoCodec === "hevc" ? ["-tag:v", "hvc1"] : []),
     "-c:a", transcodeAudio ? "aac" : "copy",
-    ...(transcodeAudio ? ["-b:a", "192k"] : []),
+    ...(transcodeAudio ? ["-profile:a", "aac_low", "-ac", String(channels), "-channel_layout", ({1:"mono",2:"stereo",6:"5.1",8:"7.1"})[channels] || `${channels}c`, "-aac_pce", "0", "-b:a", `${channels === 1 ? 96 : channels * 64 + (channels === 2 ? 64 : 0)}k`, "-threads:a", "2"] : []),
     "-f", "hls", "-hls_time", "4",
-    "-hls_list_size", "0", "-hls_playlist_type", "event",
-    "-hls_segment_filename", outputPlaylist.replace(/\.m3u8$/i, "") + "-%06d.ts",
+    "-hls_list_size", "0", "-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", "init.mp4", "-hls_flags", "temp_file",
+    "-hls_segment_filename", outputPlaylist.replace(/\.m3u8$/i, "") + "-%06d.m4s",
     outputPlaylist
   ];
 }
