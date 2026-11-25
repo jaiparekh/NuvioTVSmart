@@ -28,6 +28,6 @@ export function validateMkvSourceHost(sourceUrl, allowedHosts) {
       .map((host) => String(host).trim().toLowerCase().replace(/\.$/, ""))
       .filter(Boolean)
   );
-  if (!allowlist.has(hostname)) return { allowed: false, reason: "host-not-allowlisted" };
+  if (allowedHosts != null && !allowlist.has(hostname)) return { allowed: false, reason: "host-not-allowlisted" };
   return { allowed: true, hostname };
 }
