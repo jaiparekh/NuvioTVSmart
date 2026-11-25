@@ -46,9 +46,7 @@ const server = http.createServer(async (req, res) => {
         }
         result = await replaceAuthorizedMkvSession({ id: match[1], selectedAudioStreamIndex: input.selectedAudioStreamIndex ?? null, startSeconds: input.startSeconds });
       } else {
-        if (typeof input.sourceUrl !== "string" || !Array.isArray(input.allowedHosts) ||
-            input.allowedHosts.length < 1 || input.allowedHosts.length > 32 ||
-            !input.allowedHosts.every((h) => typeof h === "string" && /^[a-z0-9.-]{1,253}$/i.test(h)) ||
+        if (typeof input.sourceUrl !== "string" ||
             (input.selectedAudioStreamIndex != null && (!Number.isSafeInteger(input.selectedAudioStreamIndex) || input.selectedAudioStreamIndex < 0)) ||
             (input.startSeconds != null && (!Number.isFinite(input.startSeconds) || input.startSeconds < 0 || input.startSeconds > 86400))) {
           res.writeHead(400); res.end(); return;
