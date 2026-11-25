@@ -279,19 +279,33 @@ export function createPlayerScreenMethods34() {
       // Only Chrome on ordinary web browsers negotiates audio compatibility.
       // Unsupported/unconfigured servers fall through to existing playback.
       // Never expose the staging API bearer token in client code.
-      if (!nextEngineFsState && shouldTryMkvBrowserCompatibility({
+      const mkvEligibility = {
         url: normalizedStreamUrl,
         likelyMkv: this.isCurrentSourceLikelyMkv(normalizedStreamUrl, sourceCandidate),
         userAgent: globalThis.navigator?.userAgent,
         isTizen: Environment.isTizen?.(),
         isWebOS: Environment.isWebOS()
-      })) {
+      };
+      const mkvEligible = shouldTryMkvBrowserCompatibility(mkvEligibility);
+      console.info("[mkv-browser] eligibility", {
+        eligible: mkvEligible,
+        likelyMkv: mkvEligibility.likelyMkv,
+        isTizen: mkvEligibility.isTizen,
+        isWebOS: mkvEligibility.isWebOS,
+        chrome: /Chrome\/\d+/.test(mkvEligibility.userAgent || ""),
+        engineFs: Boolean(nextEngineFsState),
+        https: normalizedStreamUrl.startsWith("https:"),
+        mkvExtension: /\.mkv(?:[?#]|$)/i.test(normalizedStreamUrl)
+      });
+      if (!nextEngineFsState && mkvEligible) {
+        console.info("[mkv-browser] negotiating");
         try {
           const compatible = await requestMkvBrowserCompatibility(normalizedStreamUrl);
           if (!this.isActiveMountToken(mountToken) || this.activePlaybackUrl !== streamUrl) {
             if (compatible?.id) void closeMkvBrowserCompatibility(compatible.id);
             return;
           }
+          console.info("[mkv-browser] negotiation result", { accepted: Boolean(compatible) });
           if (compatible) {
             this.mkvCompatibilitySession = compatible;
             this.activePlaybackUrl = new URL(compatible.playlistUrl, globalThis.location.origin).href;
