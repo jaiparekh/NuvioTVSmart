@@ -19,6 +19,37 @@ const mediaProbeTimeoutMs = 1200;
 let mediaRuntimeProcess = null;
 let cachedMediaServerPort = mediaServerPorts[0];
 
+
+const mkvOwners = new Map();
+function rememberMkvOwner(result, user) {
+  if (!result?.id) return;
+  const now = Date.now();
+  for (const [id, entry] of mkvOwners) {
+    if (now - entry.created > 86400000) mkvOwners.delete(id);
+  }
+  if (mkvOwners.size >= 1024) mkvOwners.delete(mkvOwners.keys().next().value);
+  mkvOwners.set(result.id, { user, created: now });
+}
+async function authenticateMkvBrowser(request) {
+  if (process.env.NUVIO_MKV_BROWSER_ENABLED !== "1") return null;
+  const origin = process.env.NUVIO_MKV_BROWSER_ORIGIN;
+  const base = process.env.NUVIO_MKV_AUTH_URL;
+  const key = process.env.NUVIO_MKV_AUTH_KEY;
+  const authorization = request.headers.authorization;
+  if (!origin || !base || !key || request.headers.origin !== origin ||
+      request.headers["sec-fetch-site"] !== "same-origin" ||
+      typeof authorization !== "string" || !/^Bearer [A-Za-z0-9._-]{20,8192}$/.test(authorization)) return null;
+  try {
+    const url = new URL("/auth/v1/user", base);
+    if (url.protocol !== "https:" || url.username || url.password) return null;
+    const res = await fetch(url, { headers: { Authorization: authorization, apikey: key },
+      redirect: "error", signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const user = await res.json();
+    return typeof user.id === "string" && user.id && user.is_anonymous !== true && user.role === "authenticated" ? user.id : null;
+  } catch { return null; }
+}
+
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
   ".gif": "image/gif",
@@ -185,23 +216,10 @@ async function proxyLocalMediaRequest(request, response, pathname) {
 const server = http.createServer(async (request, response) => {
   try {
     const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
-    // Browser bridge is available ONLY behind a separately authenticated
-    // same-host reverse proxy. Binding the application to loopback prevents
-    // clients from bypassing proxy authentication over the LAN.
+    // Browser bridge: authenticate against a deployment-pinned backend.
     if (requestUrl.pathname === "/api/mkv-browser/session" && request.method === "POST") {
-      const enabled = process.env.NUVIO_MKV_BROWSER_ENABLED === "1" &&
-        process.env.NUVIO_MKV_BROWSER_AUTHENTICATED_PROXY === "1" &&
-        ["127.0.0.1", "::1", "localhost"].includes(host);
-      const allowedHosts = (process.env.NUVIO_MKV_ALLOWED_HOSTS || "")
-        .split(",").map((value) => value.trim()).filter(Boolean);
-      const origin = String(request.headers.origin || "");
-      const expectedOrigin = `${request.headers["x-forwarded-proto"] === "https" ? "https" : "http"}://${request.headers.host}`;
-      const sameOrigin = origin === expectedOrigin &&
-        request.headers["sec-fetch-site"] === "same-origin" &&
-        ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress);
-      if (!enabled || !sameOrigin) {
-        response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return;
-      }
+      const user = await authenticateMkvBrowser(request);
+      if (!user) { response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return; }
       let size = 0; const chunks = [];
       for await (const chunk of request) {
         size += chunk.length;
@@ -215,7 +233,8 @@ const server = http.createServer(async (request, response) => {
         response.writeHead(400); response.end(); return;
       }
       try {
-        const result = await createAuthorizedMkvSession({ sourceUrl: input.sourceUrl, allowedHosts });
+        const result = await createAuthorizedMkvSession({ sourceUrl: input.sourceUrl });
+        rememberMkvOwner(result, user);
         response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
         response.end(JSON.stringify(result));
       } catch {
@@ -225,19 +244,13 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (requestUrl.pathname.startsWith("/api/mkv-browser/session/") && request.method === "PUT") {
-      const enabled = process.env.NUVIO_MKV_BROWSER_ENABLED === "1" &&
-        process.env.NUVIO_MKV_BROWSER_AUTHENTICATED_PROXY === "1" &&
-        ["127.0.0.1", "::1", "localhost"].includes(host);
-      const expectedOrigin = `${request.headers["x-forwarded-proto"] === "https" ? "https" : "http"}://${request.headers.host}`;
-      if (!enabled || request.headers.origin !== expectedOrigin ||
-          request.headers["sec-fetch-site"] !== "same-origin" ||
-          !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress)) {
-        response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return;
-      }
+      const user = await authenticateMkvBrowser(request);
+      if (!user) { response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return; }
       const id = requestUrl.pathname.slice("/api/mkv-browser/session/".length);
       if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) {
         response.writeHead(404); response.end(); return;
       }
+      if (mkvOwners.get(id)?.user !== user) { response.writeHead(404); response.end(); return; }
       let size = 0; const chunks = [];
       for await (const chunk of request) {
         size += chunk.length;
@@ -253,6 +266,7 @@ const server = http.createServer(async (request, response) => {
         response.writeHead(400); response.end(); return;
       }
       try {
+        mkvOwners.delete(id);
         const result = await replaceAuthorizedMkvSession({
           id,
           selectedAudioStreamIndex: input.audioStreamIndex ?? null,
@@ -267,20 +281,15 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (requestUrl.pathname.startsWith("/api/mkv-browser/session/") && request.method === "DELETE") {
-      const enabled = process.env.NUVIO_MKV_BROWSER_ENABLED === "1" &&
-        process.env.NUVIO_MKV_BROWSER_AUTHENTICATED_PROXY === "1" &&
-        ["127.0.0.1", "::1", "localhost"].includes(host);
-      const expectedOrigin = `${request.headers["x-forwarded-proto"] === "https" ? "https" : "http"}://${request.headers.host}`;
-      if (!enabled || request.headers.origin !== expectedOrigin ||
-          request.headers["sec-fetch-site"] !== "same-origin" ||
-          !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress)) {
-        response.writeHead(403); response.end(); return;
-      }
+      const user = await authenticateMkvBrowser(request);
+      if (!user) { response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return; }
       const id = requestUrl.pathname.slice("/api/mkv-browser/session/".length);
       if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) {
         response.writeHead(404); response.end(); return;
       }
+      if (mkvOwners.get(id)?.user !== user) { response.writeHead(404); response.end(); return; }
       await closeHlsSession(id);
+      mkvOwners.delete(id);
       response.writeHead(204, { "Cache-Control": "no-store" }); response.end(); return;
     }
     // Explicitly configured staging API. Disabled unless a server-side secret
