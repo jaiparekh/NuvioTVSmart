@@ -1,3 +1,13 @@
+import { SessionStore } from "../storage/sessionStore.js";
+
+function compatibilityHeaders(json = false) {
+  const headers = json ? { "Content-Type": "application/json" } : {};
+  if (typeof localStorage !== "undefined" && !SessionStore.isAnonymousSession && SessionStore.accessToken) {
+    headers.Authorization = `Bearer ${SessionStore.accessToken}`;
+  }
+  return headers;
+}
+
 /** Browser-only, fail-closed MKV audio compatibility request. */
 export function shouldTryMkvBrowserCompatibility({ url, userAgent, isTizen = false, isWebOS = false }) {
   if (isTizen || isWebOS) return false;
@@ -13,7 +23,7 @@ export async function requestMkvBrowserCompatibility(sourceUrl, { fetchImpl = fe
   const response = await fetchImpl("/api/mkv-browser/session", {
     method: "POST",
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
+    headers: compatibilityHeaders(true),
     body: JSON.stringify({ sourceUrl }),
     signal: AbortSignal.timeout(25000)
   });
@@ -30,7 +40,7 @@ export async function closeMkvBrowserCompatibility(id, { fetchImpl = fetch } = {
   if (typeof id !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) return false;
   try {
     const response = await fetchImpl(`/api/mkv-browser/session/${id}`, {
-      method: "DELETE", credentials: "same-origin"
+      method: "DELETE", credentials: "same-origin", headers: compatibilityHeaders()
     });
     return response.ok;
   } catch { return false; }
@@ -44,7 +54,7 @@ export async function replaceMkvBrowserCompatibility(id, { audioStreamIndex = nu
   try {
     const response = await fetchImpl(`/api/mkv-browser/session/${id}`, {
       method: "PUT", credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
+      headers: compatibilityHeaders(true),
       body: JSON.stringify({ audioStreamIndex, startSeconds }),
       signal: AbortSignal.timeout(25000)
     });
