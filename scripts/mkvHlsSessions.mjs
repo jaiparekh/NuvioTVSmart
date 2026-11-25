@@ -171,7 +171,7 @@ export async function createAuthorizedMkvSession({ sourceUrl, allowedHosts, sele
       throw error;
     }
     sourceContexts.set(session.id, {
-      sourceUrl, allowedHosts: [...allowedHosts],
+      sourceUrl, allowedHosts: [],
       audioStreamIndex: decision.audioStreamIndex
     });
     return { ...decision, action: "hls-session", transcodeAudio: decision.action === "transcode-audio", ...session, startSeconds, playlistUrl: `/api/mkv-hls/${session.id}/index.m3u8`, audioTracks: probe.audio };
