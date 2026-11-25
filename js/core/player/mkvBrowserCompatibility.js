@@ -9,13 +9,13 @@ function compatibilityHeaders(json = false) {
 }
 
 /** Browser-only, fail-closed MKV audio compatibility request. */
-export function shouldTryMkvBrowserCompatibility({ url, userAgent, isTizen = false, isWebOS = false }) {
+export function shouldTryMkvBrowserCompatibility({ url, userAgent, isTizen = false, isWebOS = false, likelyMkv = false }) {
   if (isTizen || isWebOS) return false;
   const agent = String(userAgent || "");
   if (!/Chrome\/\d+/.test(agent) || /Edg\/|OPR\/|SamsungBrowser\//.test(agent)) return false;
   try {
     const parsed = new URL(url);
-    return /^https?:$/.test(parsed.protocol) && /\.mkv$/i.test(parsed.pathname);
+    return parsed.protocol === "https:" && !/\.(?:m3u8|mpd|mp4|webm|mov|avi|ts)$/i.test(parsed.pathname) && (likelyMkv || /\.mkv$/i.test(parsed.pathname) || !/\.[a-z0-9]{2,5}$/i.test(parsed.pathname));
   } catch { return false; }
 }
 
