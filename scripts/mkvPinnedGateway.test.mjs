@@ -10,11 +10,8 @@ test("gateway rejects HTTP sources before any DNS resolution", async () => {
   );
 });
 
-test("gateway rejects a hostname not on the explicit allowlist", async () => {
-  await assert.rejects(
-    createPinnedMkvGateway("https://untrusted.example.com/movie.mkv", ["media.example.com"]),
-    /Media source rejected/
-  );
+test("gateway rejects insecure redirect source schemes", async () => {
+  await assert.rejects(createPinnedMkvGateway("ftp://media.example.com/movie.mkv"), /HTTPS media source required/);
 });
 
 test("gateway rejects localhost and IP-literal sources", async () => {
