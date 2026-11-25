@@ -53,13 +53,20 @@ export function createPlayerScreenMethods34() {
         return;
       }
 
-      // Release previous compatibility transcode when changing playback sources.
-      if (this.mkvCompatibilitySession?.id) {
-        const previousId = this.mkvCompatibilitySession.id;
-        this.mkvCompatibilitySession = null;
-        void closeMkvBrowserCompatibility(previousId);
-      }
       const normalizedStreamUrl = String(streamUrl || "").trim();
+      // A playback-engine restart can reuse the current compatibility playlist.
+      // Only release the worker session when switching to a different source.
+      const currentMkvSession = this.mkvCompatibilitySession;
+      const reusesMkvSession = Boolean(currentMkvSession?.id &&
+        new URL(currentMkvSession.playlistUrl, globalThis.location.origin).href ===
+        new URL(normalizedStreamUrl, globalThis.location.origin).href);
+      if (currentMkvSession?.id && !reusesMkvSession) {
+        this.mkvCompatibilitySession = null;
+        void closeMkvBrowserCompatibility(currentMkvSession.id);
+      }
+      if (reusesMkvSession) {
+        console.info("[mkv-browser] preserving existing HLS session");
+      }
       const previousSourceCandidate = this.getCurrentStreamCandidate();
       const sourceCandidate =
         explicitSourceCandidate || this.getStreamCandidateByUrl(normalizedStreamUrl) || this.getCurrentStreamCandidate();
@@ -297,7 +304,7 @@ export function createPlayerScreenMethods34() {
         https: normalizedStreamUrl.startsWith("https:"),
         mkvExtension: /\.mkv(?:[?#]|$)/i.test(normalizedStreamUrl)
       });
-      if (!nextEngineFsState && mkvEligible) {
+      if (!reusesMkvSession && !nextEngineFsState && mkvEligible) {
         console.info("[mkv-browser] negotiating");
         try {
           const compatible = await requestMkvBrowserCompatibility(normalizedStreamUrl);
