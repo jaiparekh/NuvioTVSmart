@@ -1,10 +1,12 @@
 import { saveReusableStreamLink } from "../../../core/streams/streamLinkReuse.js";
+import { shouldTryMkvBrowserCompatibility, requestMkvBrowserCompatibility, closeMkvBrowserCompatibility } from "../../../core/player/mkvBrowserCompatibility.js";
 /* eslint-disable no-unused-vars */
 import * as internals from "./playerScreenContext.js";
 
 export function createPlayerScreenMethods18() {
   const {
     PlayerController,
+    Environment,
     isExpiredStreamUrl,
     LOADING_LOGO_FILL_TARGET_LERP,
     LOADING_LOGO_FILL_IDLE_STEP,
@@ -15,8 +17,8 @@ export function createPlayerScreenMethods18() {
   } = internals;
 
   return {
-    startPlayerControllerPlayback(url, context = {}, { mountToken = null, sourceCandidate = null } = {}) {
-      const playbackUrl = String(url || "").trim();
+    async startPlayerControllerPlayback(url, context = {}, { mountToken = null, sourceCandidate = null } = {}) {
+      let playbackUrl = String(url || "").trim();
       if (!playbackUrl) {
         this.showStartupError(t("player_error_no_stream_url", {}, "No stream URL provided"), {
           streamCandidate: sourceCandidate,
@@ -30,6 +32,29 @@ export function createPlayerScreenMethods18() {
           reason: "stream-url-expired-before-start"
         });
         return Promise.resolve();
+      }
+      if (!this.mkvCompatibilitySession && !this.currentEngineFsStream && shouldTryMkvBrowserCompatibility({
+        url: playbackUrl,
+        likelyMkv: this.isCurrentSourceLikelyMkv?.(playbackUrl, sourceCandidate),
+        userAgent: globalThis.navigator?.userAgent,
+        isTizen: Environment.isTizen?.(),
+        isWebOS: Environment.isWebOS()
+      })) {
+        console.info("[mkv-browser] negotiating at controller startup");
+        const originalUrl = playbackUrl;
+        let compatible = null;
+        try { compatible = await requestMkvBrowserCompatibility(originalUrl); } catch (_) {}
+        if (!this.isActiveMountToken(mountToken) || String(this.activePlaybackUrl || "").trim() !== originalUrl) {
+          if (compatible?.id) void closeMkvBrowserCompatibility(compatible.id);
+          return;
+        }
+        if (compatible) {
+          this.mkvCompatibilitySession = compatible;
+          playbackUrl = new URL(compatible.playlistUrl, globalThis.location.origin).href;
+          this.activePlaybackUrl = playbackUrl;
+          context = { ...context, forceEngine: "hls.js", requestHeaders: {}, mediaSourceType: "application/vnd.apple.mpegurl" };
+        }
+        console.info("[mkv-browser] startup negotiation result", { accepted: Boolean(compatible) });
       }
       // Keep the candidate as a defensive source of truth. A route can be
       // rebuilt with a context that no longer contains requestHeaders, while
