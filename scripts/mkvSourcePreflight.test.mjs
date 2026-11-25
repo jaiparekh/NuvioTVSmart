@@ -38,3 +38,9 @@ test("preflight fails closed on DNS errors and unauthorized hosts", async () => 
     ["media.example.com"], async () => { throw new Error("should not resolve"); })).reason,
   "host-not-allowlisted");
 });
+
+test("public HTTPS source does not require an allowlist", async () => {
+  const resolve = async () => [{ address: "8.8.8.8", family: 4 }];
+  assert.equal((await preflightMkvSource("https://cdn.example.com/movie.mkv", null, resolve)).allowed, true);
+  assert.equal((await preflightMkvSource("https://cdn.example.com/movie.mkv", null, async () => [{ address: "10.0.0.1", family: 4 }])).allowed, false);
+});
