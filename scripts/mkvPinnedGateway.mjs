@@ -44,7 +44,13 @@ export async function createPinnedMkvGateway(sourceUrl, allowedHosts) {
       headers,
       // Keep TLS hostname validation/SNI intact while pinning the actual socket.
       servername: upstreamHost,
-      lookup: (_hostname, _options, callback) => callback(null, address, 4),
+      // Node 22 may request all addresses when automatic family selection is enabled.
+      family: 4,
+      autoSelectFamily: false,
+      lookup: (_hostname, options, callback) => {
+        if (options?.all) callback(null, [{ address, family: 4 }]);
+        else callback(null, address, 4);
+      },
       timeout: 15000,
       maxHeaderSize: 16384,
       agent: false
