@@ -199,7 +199,7 @@ const server = http.createServer(async (request, response) => {
       const sameOrigin = origin === expectedOrigin &&
         request.headers["sec-fetch-site"] === "same-origin" &&
         ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress);
-      if (!enabled || !allowedHosts.length || !sameOrigin) {
+      if (!enabled || !sameOrigin) {
         response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return;
       }
       let size = 0; const chunks = [];
@@ -284,7 +284,7 @@ const server = http.createServer(async (request, response) => {
       response.writeHead(204, { "Cache-Control": "no-store" }); response.end(); return;
     }
     // Explicitly configured staging API. Disabled unless a server-side secret
-    // and exact upstream host allowlist are both present. Never publish the
+    // is present. Never publish the
     // secret through nuvio.env.js or embed it in the browser bundle.
     if (requestUrl.pathname === "/api/mkv-hls/session" && request.method === "POST") {
       const secret = process.env.NUVIO_MKV_API_TOKEN || "";
@@ -293,7 +293,7 @@ const server = http.createServer(async (request, response) => {
       const supplied = String(request.headers.authorization || "").replace(/^Bearer /, "");
       const expected = Buffer.from(secret);
       const actual = Buffer.from(supplied);
-      if (secret.length < 32 || !allowedHosts.length ||
+      if (secret.length < 32 ||
           expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
         response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return;
       }
