@@ -8,7 +8,7 @@ const port = Number(process.env.NUVIO_MKV_WORKER_PORT || 4180);
 const host = process.env.NUVIO_MKV_WORKER_HOST || "0.0.0.0";
 const uuid = "[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}";
 const sessionRoute = new RegExp(`^/session/(${uuid})$`);
-const assetRoute = new RegExp(`^/asset/(${uuid})/(index\\.m3u8|index-\\d{6}\\.ts)$`);
+const assetRoute = new RegExp(`^/asset/(${uuid})/(index\\.m3u8|init\\.mp4|index-\\d{6}\\.m4s)$`);
 const server = http.createServer(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const auth = String(req.headers.authorization || "").replace(/^Bearer /, "");
