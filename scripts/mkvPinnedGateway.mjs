@@ -12,19 +12,17 @@ function diagnostic(category, status = null) {
 /**
  * Loopback-only, DNS-pinned media gateway for FFmpeg/ffprobe.
  * Every upstream request is revalidated and pinned to its checked address.
- * Redirects are never followed; upstream credentials and request headers
+ * Up to five HTTPS redirects are independently validated; upstream credentials and request headers
  * are not accepted. Range is forwarded to support MKV probing and seeking.
  *
  * This is a transport primitive, not a public session authorization API.
  */
-export async function createPinnedMkvGateway(sourceUrl, allowedHosts) {
+export async function createPinnedMkvGateway(sourceUrl, _legacyAllowedHosts) {
   const url = new URL(sourceUrl);
   if (url.protocol !== "https:") throw new Error("HTTPS media source required");
-  const check = await preflightMkvSource(sourceUrl, allowedHosts);
+  const check = await preflightMkvSource(sourceUrl, null);
   if (!check.allowed) throw new Error("Media source rejected");
   const token = randomUUID();
-  const upstreamHost = check.hostname;
-  const address = check.addresses[0];
   const server = http.createServer((req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.writeHead(405); res.end(); return;
@@ -32,18 +30,31 @@ export async function createPinnedMkvGateway(sourceUrl, allowedHosts) {
     if (req.url !== "/" + token) {
       res.writeHead(404); res.end(); return;
     }
-    const headers = { Host: url.host, Accept: "*/*", "Accept-Encoding": "identity" };
+    const headers = { Accept: "*/*", "Accept-Encoding": "identity" };
     const range = req.headers.range;
     if (typeof range === "string" && /^bytes=\d*-\d*$/.test(range)) {
       headers.Range = range;
     } else if (range != null) {
       res.writeHead(416); res.end(); return;
     }
-    const upstream = https.request(url, {
+    const fail = () => { if (!res.headersSent) res.writeHead(502); res.end(); };
+    let active;
+    res.once("close", () => active?.destroy());
+    async function forward(target, hops, seen) {
+      if (res.destroyed) return;
+      if (target.protocol !== "https:" || seen.has(target.href) || hops > 5) {
+        diagnostic("redirect-rejected"); fail(); return;
+      }
+      seen.add(target.href);
+      const validated = await preflightMkvSource(target.href, null);
+      if (res.destroyed) return;
+      if (!validated.allowed) { diagnostic("source-rejected"); fail(); return; }
+      const address = validated.addresses[0];
+      const upstream = https.request(target, {
       method: req.method,
-      headers,
+      headers: { ...headers, Host: target.host },
       // Keep TLS hostname validation/SNI intact while pinning the actual socket.
-      servername: upstreamHost,
+      servername: validated.hostname,
       // Node 22 may request all addresses when automatic family selection is enabled.
       family: 4,
       autoSelectFamily: false,
@@ -57,8 +68,14 @@ export async function createPinnedMkvGateway(sourceUrl, allowedHosts) {
     }, (remote) => {
       if (remote.statusCode >= 300 && remote.statusCode < 400) {
         diagnostic("upstream-redirect", remote.statusCode);
-        remote.resume();
-        res.writeHead(502); res.end(); return;
+        const location = remote.headers.location;
+        remote.destroy();
+        if (![301, 302, 303, 307, 308].includes(remote.statusCode) || !location) { fail(); return; }
+        try {
+          const next = new URL(location, target);
+          void forward(next, hops + 1, seen).catch(fail);
+        } catch { fail(); }
+        return;
       }
       if (![200, 206, 416].includes(remote.statusCode)) {
         diagnostic("upstream-http-rejected", remote.statusCode);
@@ -70,6 +87,7 @@ export async function createPinnedMkvGateway(sourceUrl, allowedHosts) {
         if (remote.headers[name] != null) forwarded[name] = remote.headers[name];
       }
       res.writeHead(remote.statusCode, forwarded);
+      remote.on("error", () => res.destroy());
       remote.pipe(res);
     });
     upstream.on("timeout", () => {
@@ -85,8 +103,10 @@ export async function createPinnedMkvGateway(sourceUrl, allowedHosts) {
       if (!res.headersSent) res.writeHead(502);
       res.end();
     });
-    res.on("close", () => upstream.destroy());
+    active = upstream;
     upstream.end();
+    }
+    void forward(url, 0, new Set()).catch(fail);
   });
   try {
     await new Promise((resolve, reject) => {
